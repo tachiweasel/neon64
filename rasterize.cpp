@@ -84,6 +84,7 @@ struct texture {
 
 struct render_state {
     framebuffer *framebuffer;
+    int16_t *depth;
     texture *texture;
 };
 
@@ -304,27 +305,6 @@ int16x4_t vmovn_s32(int32x4_t vector) {
 
 #endif
 
-#define REPLACE_ZERO_WITH_ONE(value, index) \
-    do { \
-        if (vgetq_lane_s16(sum, index) == 0) \
-            sum = vsetq_lane_s16(1, sum, index); \
-    } while (0)
-
-
-#if 0
-int16x8_t lerp_int16x8(int16_t x0,
-                       int16_t x1,
-                       int16_t x2,
-                       int16x8_t w0,
-                       int16x8_t w1,
-                       int16x8_t w2,
-                       int16x8_t sum) {
-    return (w0 * vdupq_n_s16(x0)) / sum +
-        (w1 * vdupq_n_s16(x1)) / sum +
-        (w2 * vdupq_n_s16(x2)) / sum;
-}
-#endif
-
 int16x8_t lerp_int16x8(int16_t x0,
                        int16_t x1,
                        int16_t x2,
@@ -367,13 +347,6 @@ int16x8_t lerp_int16x8(int16_t x0,
                                                     uint16x8_t mask) {
     uint16x8_t pixels = vdupq_n_u16(0);
 
-#if 0
-    // Normalize barycentric coordinates.
-    int16x8_t sum = w0 + w1 + w2;
-    uint16x8_t one = vdupq_n_u16(1);
-    sum = vqsubq_u16(sum, one) + one;
-#endif
-
     // Extract low half.
     float32x4_t w0_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w0)));
     float32x4_t w1_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w1)));
@@ -391,6 +364,26 @@ int16x8_t lerp_int16x8(int16_t x0,
     w0_highf *= wfactor_highf;
     w1_highf *= wfactor_highf;
     w2_highf *= wfactor_highf;
+
+    // Compute index into the pixel/depth buffer.
+    int row = (-origin->y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
+    int column = origin->x + FRAMEBUFFER_WIDTH / 2;
+    int index = row * FRAMEBUFFER_WIDTH + column;
+
+    // Z-buffer.
+    int16x8_t *z_values_ptr = (int16x8_t *)&render_state->depth[index];
+    int16x8_t z = lerp_int16x8(triangle->v0.z,
+                               triangle->v1.z,
+                               triangle->v2.z,
+                               w1_lowf,
+                               w2_lowf,
+                               w1_highf,
+                               w2_highf);
+    int16x8_t z_values = *z_values_ptr;
+    mask &= z < z_values;
+    if ((__int128_t)(mask) == 0)
+        return;
+    *z_values_ptr = (z_values & ~mask) | (z & mask);
 
 #ifdef TEXTURING
     int16x8_t s = vdupq_n_s16(triangle->t0.x) +
@@ -458,10 +451,7 @@ int16x8_t lerp_int16x8(int16_t x0,
 
 #endif
 
-    int row = (-origin->y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
-    int column = origin->x + FRAMEBUFFER_WIDTH / 2;
-    uint16x8_t *ptr =
-        (uint16x8_t *)&render_state->framebuffer->pixels[row * FRAMEBUFFER_WIDTH + column];
+    uint16x8_t *ptr = (uint16x8_t *)&render_state->framebuffer->pixels[index];
     *ptr = (*ptr & ~mask) | pixels;
 }
 
@@ -600,6 +590,11 @@ int main() {
         memset(render_state->framebuffer->pixels,
                '\0',
                FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1));
+
+        render_state->depth = new int16_t[FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1)];
+        for (int j = 0; j < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); j++)
+            render_state->depth[j] = 0x7fff;
+
         render_state->texture = new texture;
         for (int j = 0; j < TEXTURE_WIDTH * TEXTURE_HEIGHT; j++)
             render_state->texture->pixels[j] = rand();
