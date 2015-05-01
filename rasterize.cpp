@@ -10,6 +10,8 @@
 
 #ifdef __arm__
 #include <arm_neon.h>
+#else
+#include <xmmintrin.h>
 #endif
 
 #ifdef DRAW
@@ -123,34 +125,6 @@ struct triangle_edge {
     int16x8_t y_step;
 };
 
-int16x8_t repeat_int16x8_t(int16_t value) {
-    int16x8_t result = {
-        value,
-        value,
-        value,
-        value,
-        value,
-        value,
-        value,
-        value,
-    };
-    return result;
-}
-
-uint16x8_t repeat_uint16x8_t(uint16_t value) {
-    uint16x8_t result = {
-        value,
-        value,
-        value,
-        value,
-        value,
-        value,
-        value,
-        value,
-    };
-    return result;
-}
-
 #ifdef __arm__
 #define COMPARE_GE_INT16X8(mask, a, b, label) \
     int16x8_t tmp; \
@@ -182,6 +156,7 @@ uint16x8_t repeat_uint16x8_t(uint16_t value) {
     } while (0)
 
 #ifndef __arm__
+
 int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
     return vector[index];
 }
@@ -196,6 +171,37 @@ uint16x8_t vsetq_lane_u16(uint16_t value, uint16x8_t vector, int8_t index) {
     vector[index] = value;
     return vector;
 }
+uint16x8_t vqsubq_u16(uint16x8_t a, uint16x8_t b) {
+    return _mm_subs_epu16(a, b);
+}
+int16x8_t vdupq_n_s16(int16_t value) {
+    int16x8_t result = {
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
+uint16x8_t vdupq_n_u16(uint16_t value) {
+    uint16x8_t result = {
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
 #endif
 
 #define REPLACE_ZERO_WITH_ONE(value, index) \
@@ -210,20 +216,11 @@ int16x8_t lerp_int16x8(int16_t x0,
                        int16_t x2,
                        int16x8_t w0,
                        int16x8_t w1,
-                       int16x8_t w2) {
-    int16x8_t sum = w0 + w1 + w2;
-    REPLACE_ZERO_WITH_ONE(sum, 0);
-    REPLACE_ZERO_WITH_ONE(sum, 1);
-    REPLACE_ZERO_WITH_ONE(sum, 2);
-    REPLACE_ZERO_WITH_ONE(sum, 3);
-    REPLACE_ZERO_WITH_ONE(sum, 4);
-    REPLACE_ZERO_WITH_ONE(sum, 5);
-    REPLACE_ZERO_WITH_ONE(sum, 6);
-    REPLACE_ZERO_WITH_ONE(sum, 7);
-
-    return (w0 * repeat_int16x8_t(x0)) / sum +
-        (w1 * repeat_int16x8_t(x1)) / sum +
-        (w2 * repeat_int16x8_t(x2)) / sum;
+                       int16x8_t w2,
+                       int16x8_t sum) {
+    return (w0 * vdupq_n_s16(x0)) / sum +
+        (w1 * vdupq_n_s16(x1)) / sum +
+        (w2 * vdupq_n_s16(x2)) / sum;
 }
 
 #define BLIT(pixels, mask, r, g, b, index) \
@@ -246,17 +243,22 @@ int16x8_t lerp_int16x8(int16_t x0,
                                                     int16x8_t w1,
                                                     int16x8_t w2,
                                                     uint16x8_t mask) {
-    uint16x8_t pixels = repeat_uint16x8_t(0);
+    uint16x8_t pixels = vdupq_n_u16(0);
+
+    // Normalize barycentric coordinates.
+    int16x8_t sum = w0 + w1 + w2;
+    uint16x8_t one = vdupq_n_u16(1);
+    sum = vqsubq_u16(sum, one) + one;
 
 #ifdef TEXTURING
-    int16x8_t s = repeat_int16x8_t(triangle->t0.x) +
-        w1 * repeat_int16x8_t(triangle->t1.x - triangle->t0.x) +
-        w2 * repeat_int16x8_t(triangle->t2.x - triangle->t0.x);
-    int16x8_t t = repeat_int16x8_t(triangle->t0.y) +
-        w1 * repeat_int16x8_t(triangle->t1.y - triangle->t0.y) +
-        w2 * repeat_int16x8_t(triangle->t2.y - triangle->t0.y);
-    int16x8_t texture_width = repeat_int16x8_t(TEXTURE_WIDTH);
-    int16x8_t texture_height = repeat_int16x8_t(TEXTURE_HEIGHT);
+    int16x8_t s = vdupq_n_s16(triangle->t0.x) +
+        w1 * vdupq_n_s16(triangle->t1.x - triangle->t0.x) +
+        w2 * vdupq_n_s16(triangle->t2.x - triangle->t0.x);
+    int16x8_t t = vdupq_n_s16(triangle->t0.y) +
+        w1 * vdupq_n_s16(triangle->t1.y - triangle->t0.y) +
+        w2 * vdupq_n_s16(triangle->t2.y - triangle->t0.y);
+    int16x8_t texture_width = vdupq_n_s16(TEXTURE_WIDTH);
+    int16x8_t texture_height = vdupq_n_s16(TEXTURE_HEIGHT);
     s = s % texture_width;
     t = t % texture_height;
     int16x8_t texture_index = t * texture_width + s;
@@ -276,13 +278,13 @@ int16x8_t lerp_int16x8(int16_t x0,
     __asm__("vceq.s16 %q0,%q1,%q2" : "=w" (pixels) : "w" (mask), "w" (zero));
     mask = ~pixels;
 #else
-    mask = ~(mask == repeat_uint16x8_t(0));
+    mask = ~(mask == vdupq_n_u16(0));
 #endif
 
 #ifdef COLORING
-    int16x8_t r = lerp_int16x8(triangle->c0.r, triangle->c1.r, triangle->c2.r, w0, w1, w2);
-    int16x8_t g = lerp_int16x8(triangle->c0.g, triangle->c1.g, triangle->c2.g, w0, w1, w2);
-    int16x8_t b = lerp_int16x8(triangle->c0.b, triangle->c1.b, triangle->c2.b, w0, w1, w2);
+    int16x8_t r = lerp_int16x8(triangle->c0.r, triangle->c1.r, triangle->c2.r, w0, w1, w2, sum);
+    int16x8_t g = lerp_int16x8(triangle->c0.g, triangle->c1.g, triangle->c2.g, w0, w1, w2, sum);
+    int16x8_t b = lerp_int16x8(triangle->c0.b, triangle->c1.b, triangle->c2.b, w0, w1, w2, sum);
 
     BLIT(pixels, mask, r, g, b, 0);
     BLIT(pixels, mask, r, g, b, 1);
@@ -318,14 +320,14 @@ int16x8_t setup_triangle_edge(triangle_edge *edge,
     int16_t b = v1->x - v0->x;
     int16_t c = v0->x * v1->y - v0->y * v1->x;
 
-    edge->x_step = repeat_int16x8_t(a * PIXEL_STEP_SIZE);
-    edge->y_step = repeat_int16x8_t(b);
+    edge->x_step = vdupq_n_s16(a * PIXEL_STEP_SIZE);
+    edge->y_step = vdupq_n_s16(b);
 
-    int16x8_t x = repeat_int16x8_t(origin->x);
+    int16x8_t x = vdupq_n_s16(origin->x);
     int16x8_t addend = { 0, 1, 2, 3, 4, 5, 6, 7 };
     x += addend;
-    int16x8_t y = repeat_int16x8_t(origin->y);
-    return repeat_int16x8_t(a) * x + repeat_int16x8_t(b) * y + repeat_int16x8_t(c);
+    int16x8_t y = vdupq_n_s16(origin->y);
+    return vdupq_n_s16(a) * x + vdupq_n_s16(b) * y + vdupq_n_s16(c);
 }
 
 void draw_triangle(render_state *render_state, const triangle *t) {
@@ -343,7 +345,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     int16x8_t w1_row = setup_triangle_edge(&e20, v2, v0, &origin);
     int16x8_t w2_row = setup_triangle_edge(&e01, v0, v1, &origin);
 
-    int16x8_t zero = repeat_int16x8_t(0);
+    int16x8_t zero = vdupq_n_s16(0);
 
     for (int16_t y = min_y; y <= max_y; y += WORKER_THREAD_COUNT) {
         int16x8_t w0 = w0_row, w1 = w1_row, w2 = w2_row;
