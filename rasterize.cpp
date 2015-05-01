@@ -29,7 +29,10 @@
 #define SUBFRAMEBUFFER_HEIGHT   ((FRAMEBUFFER_HEIGHT) / (WORKER_THREAD_COUNT))
 
 #ifndef __arm__
+typedef float float32x4_t __attribute__((vector_size(16)));
+typedef int16_t int16x4_t __attribute__((vector_size(8)));
 typedef int16_t int16x8_t __attribute__((vector_size(16)));
+typedef int32_t int32x4_t __attribute__((vector_size(16)));
 typedef uint16_t uint16x8_t __attribute__((vector_size(16)));
 #endif
 
@@ -160,20 +163,35 @@ struct triangle_edge {
 int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
     return vector[index];
 }
+
 uint16_t vgetq_lane_u16(uint16x8_t vector, uint8_t index) {
     return vector[index];
 }
+
 int16x8_t vsetq_lane_s16(int16_t value, int16x8_t vector, int8_t index) {
     vector[index] = value;
     return vector;
 }
+
 uint16x8_t vsetq_lane_u16(uint16_t value, uint16x8_t vector, int8_t index) {
     vector[index] = value;
     return vector;
 }
+
 uint16x8_t vqsubq_u16(uint16x8_t a, uint16x8_t b) {
     return _mm_subs_epu16(a, b);
 }
+
+float32x4_t vdupq_n_f32(float value) {
+    float32x4_t result = {
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
 int16x8_t vdupq_n_s16(int16_t value) {
     int16x8_t result = {
         value,
@@ -202,6 +220,88 @@ uint16x8_t vdupq_n_u16(uint16_t value) {
     return result;
 }
 
+float32x4_t vmulq_n_f32(float32x4_t vector, float value) {
+    return vector * vdupq_n_f32(value);
+}
+
+float32x4_t vrecpeq_f32(float32x4_t vector) {
+    return vdupq_n_f32(1.0) / vector;
+}
+
+int16x4_t vget_low_s16(int16x8_t vector) {
+    int16x4_t result = {
+        vector[0],
+        vector[1],
+        vector[2],
+        vector[3],
+    };
+    return result;
+}
+
+int16x4_t vget_high_s16(int16x8_t vector) {
+    int16x4_t result = {
+        vector[4],
+        vector[5],
+        vector[6],
+        vector[7],
+    };
+    return result;
+}
+
+int32x4_t vmovl_s16(int16x4_t vector) {
+    int32x4_t result = {
+        (int32_t)vector[0],
+        (int32_t)vector[1],
+        (int32_t)vector[2],
+        (int32_t)vector[3],
+    };
+    return result;
+}
+
+int16x8_t vcombine_s16(int16x4_t low, int16x4_t high) {
+    int16x8_t result = {
+        low[0],
+        low[1],
+        low[2],
+        low[3],
+        high[0],
+        high[1],
+        high[2],
+        high[3],
+    };
+    return result;
+}
+
+int32x4_t vcvtq_s32_f32(float32x4_t vector) {
+    int32x4_t result = {
+        (float)vector[0],
+        (float)vector[1],
+        (float)vector[2],
+        (float)vector[3],
+    };
+    return result;
+}
+
+float32x4_t vcvtq_f32_s32(int32x4_t vector) {
+    float32x4_t result = {
+        (int32_t)vector[0],
+        (int32_t)vector[1],
+        (int32_t)vector[2],
+        (int32_t)vector[3],
+    };
+    return result;
+}
+
+int16x4_t vmovn_s32(int32x4_t vector) {
+    int16x4_t result = {
+        (int16_t)vector[0],
+        (int16_t)vector[1],
+        (int16_t)vector[2],
+        (int16_t)vector[3],
+    };
+    return result;
+}
+
 #endif
 
 #define REPLACE_ZERO_WITH_ONE(value, index) \
@@ -211,6 +311,7 @@ uint16x8_t vdupq_n_u16(uint16_t value) {
     } while (0)
 
 
+#if 0
 int16x8_t lerp_int16x8(int16_t x0,
                        int16_t x1,
                        int16_t x2,
@@ -221,6 +322,27 @@ int16x8_t lerp_int16x8(int16_t x0,
     return (w0 * vdupq_n_s16(x0)) / sum +
         (w1 * vdupq_n_s16(x1)) / sum +
         (w2 * vdupq_n_s16(x2)) / sum;
+}
+#endif
+
+int16x8_t lerp_int16x8(int16_t x0,
+                       int16_t x1,
+                       int16_t x2,
+                       float32x4_t w1_lowf,
+                       float32x4_t w2_lowf,
+                       float32x4_t w1_highf,
+                       float32x4_t w2_highf) {
+    float32x4_t result_lowf = vdupq_n_f32((float)x0) +
+        vmulq_n_f32(w1_lowf, (float)(x1 - x0)) +
+        vmulq_n_f32(w2_lowf, (float)(x2 - x0));
+    int16x4_t result_low = vmovn_s32(vcvtq_s32_f32(result_lowf));
+
+    float32x4_t result_highf = vdupq_n_f32((float)x0) +
+        vmulq_n_f32(w1_highf, (float)(x1 - x0)) +
+        vmulq_n_f32(w2_highf, (float)(x2 - x0));
+    int16x4_t result_high = vmovn_s32(vcvtq_s32_f32(result_highf));
+
+    return vcombine_s16(result_low, result_high);
 }
 
 #define BLIT(pixels, mask, r, g, b, index) \
@@ -245,10 +367,30 @@ int16x8_t lerp_int16x8(int16_t x0,
                                                     uint16x8_t mask) {
     uint16x8_t pixels = vdupq_n_u16(0);
 
+#if 0
     // Normalize barycentric coordinates.
     int16x8_t sum = w0 + w1 + w2;
     uint16x8_t one = vdupq_n_u16(1);
     sum = vqsubq_u16(sum, one) + one;
+#endif
+
+    // Extract low half.
+    float32x4_t w0_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w0)));
+    float32x4_t w1_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w1)));
+    float32x4_t w2_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w2)));
+    float32x4_t wfactor_lowf = vrecpeq_f32(w0_lowf + w1_lowf + w2_lowf);
+    w0_lowf *= wfactor_lowf;
+    w1_lowf *= wfactor_lowf;
+    w2_lowf *= wfactor_lowf;
+
+    // Extract high half.
+    float32x4_t w0_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(w0)));
+    float32x4_t w1_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(w1)));
+    float32x4_t w2_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(w2)));
+    float32x4_t wfactor_highf = vrecpeq_f32(w0_highf + w1_highf + w2_highf);
+    w0_highf *= wfactor_highf;
+    w1_highf *= wfactor_highf;
+    w2_highf *= wfactor_highf;
 
 #ifdef TEXTURING
     int16x8_t s = vdupq_n_s16(triangle->t0.x) +
@@ -282,9 +424,27 @@ int16x8_t lerp_int16x8(int16_t x0,
 #endif
 
 #ifdef COLORING
-    int16x8_t r = lerp_int16x8(triangle->c0.r, triangle->c1.r, triangle->c2.r, w0, w1, w2, sum);
-    int16x8_t g = lerp_int16x8(triangle->c0.g, triangle->c1.g, triangle->c2.g, w0, w1, w2, sum);
-    int16x8_t b = lerp_int16x8(triangle->c0.b, triangle->c1.b, triangle->c2.b, w0, w1, w2, sum);
+    int16x8_t r = lerp_int16x8(triangle->c0.r,
+                               triangle->c1.r,
+                               triangle->c2.r,
+                               w1_lowf,
+                               w2_lowf,
+                               w1_highf,
+                               w2_highf);
+    int16x8_t g = lerp_int16x8(triangle->c0.g,
+                               triangle->c1.g,
+                               triangle->c2.g,
+                               w1_lowf,
+                               w2_lowf,
+                               w1_highf,
+                               w2_highf);
+    int16x8_t b = lerp_int16x8(triangle->c0.b,
+                               triangle->c1.b,
+                               triangle->c2.b,
+                               w1_lowf,
+                               w2_lowf,
+                               w1_highf,
+                               w2_highf);
 
     BLIT(pixels, mask, r, g, b, 0);
     BLIT(pixels, mask, r, g, b, 1);
