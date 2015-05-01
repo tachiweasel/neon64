@@ -182,17 +182,28 @@ uint16x8_t repeat_uint16x8_t(uint16_t value) {
     } while (0)
 
 #ifndef __arm__
+int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
+    return vector[index];
+}
 uint16_t vgetq_lane_u16(uint16x8_t vector, uint8_t index) {
     return vector[index];
 }
-int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
-    return vector[index];
+int16x8_t vsetq_lane_s16(int16_t value, int16x8_t vector, int8_t index) {
+    vector[index] = value;
+    return vector;
 }
 uint16x8_t vsetq_lane_u16(uint16_t value, uint16x8_t vector, int8_t index) {
     vector[index] = value;
     return vector;
 }
 #endif
+
+#define REPLACE_ZERO_WITH_ONE(value, index) \
+    do { \
+        if (vgetq_lane_s16(sum, index) == 0) \
+            sum = vsetq_lane_s16(1, sum, index); \
+    } while (0)
+
 
 int16x8_t lerp_int16x8(int16_t x0,
                        int16_t x1,
@@ -201,14 +212,32 @@ int16x8_t lerp_int16x8(int16_t x0,
                        int16x8_t w1,
                        int16x8_t w2) {
     int16x8_t sum = w0 + w1 + w2;
-    for (int i = 0; i < 8; i++) {
-        if (sum[i] == 0)
-            sum[i] = 1;
-    }
+    REPLACE_ZERO_WITH_ONE(sum, 0);
+    REPLACE_ZERO_WITH_ONE(sum, 1);
+    REPLACE_ZERO_WITH_ONE(sum, 2);
+    REPLACE_ZERO_WITH_ONE(sum, 3);
+    REPLACE_ZERO_WITH_ONE(sum, 4);
+    REPLACE_ZERO_WITH_ONE(sum, 5);
+    REPLACE_ZERO_WITH_ONE(sum, 6);
+    REPLACE_ZERO_WITH_ONE(sum, 7);
+
     return (w0 * repeat_int16x8_t(x0)) / sum +
         (w1 * repeat_int16x8_t(x1)) / sum +
         (w2 * repeat_int16x8_t(x2)) / sum;
 }
+
+#define BLIT(pixels, mask, r, g, b, index) \
+    do { \
+        int16_t r_i = vgetq_lane_s16(r, index); \
+        int16_t g_i = vgetq_lane_s16(g, index); \
+        int16_t b_i = vgetq_lane_s16(b, index); \
+        uint16_t mask_i = vgetq_lane_u16(mask, index); \
+        pixels = vsetq_lane_u16(mask_i & (((r_i >> 3) << 11) | \
+                                          ((g_i >> 2) << 5) | \
+                                          ((b_i >> 3) << 0)), \
+                                pixels, \
+                                index); \
+    } while(0)
 
 /*__attribute__((always_inline))*/ void draw_pixels(render_state *render_state,
                                                     const vec2i16 *origin,
@@ -255,9 +284,14 @@ int16x8_t lerp_int16x8(int16_t x0,
     int16x8_t g = lerp_int16x8(triangle->c0.g, triangle->c1.g, triangle->c2.g, w0, w1, w2);
     int16x8_t b = lerp_int16x8(triangle->c0.b, triangle->c1.b, triangle->c2.b, w0, w1, w2);
 
-    for (int i = 0; i < 8; i++) {
-        pixels[i] = mask[i] & (((r[i] >> 3) << 11) | ((g[i] >> 2) << 5) | ((b[i] >> 3) << 0));
-    }
+    BLIT(pixels, mask, r, g, b, 0);
+    BLIT(pixels, mask, r, g, b, 1);
+    BLIT(pixels, mask, r, g, b, 2);
+    BLIT(pixels, mask, r, g, b, 3);
+    BLIT(pixels, mask, r, g, b, 4);
+    BLIT(pixels, mask, r, g, b, 5);
+    BLIT(pixels, mask, r, g, b, 6);
+    BLIT(pixels, mask, r, g, b, 7);
 #endif
 
 #endif
