@@ -20,7 +20,7 @@
 
 #define FRAMEBUFFER_WIDTH       320
 #define FRAMEBUFFER_HEIGHT      240
-#define WORKER_THREAD_COUNT     4
+#define WORKER_THREAD_COUNT     1
 #define PIXEL_STEP_SIZE         8
 #define TEXTURE_WIDTH           64
 #define TEXTURE_HEIGHT          64
@@ -183,6 +183,10 @@ float32x4_t vaddq_f32(float32x4_t a, float32x4_t b) {
     return a + b;
 }
 
+int32x4_t vaddq_s32(int32x4_t a, int32x4_t b) {
+    return a + b;
+}
+
 float32x4_t vmulq_f32(float32x4_t a, float32x4_t b) {
     return a * b;
 }
@@ -235,6 +239,16 @@ float32x4_t vdupq_n_f32(float value) {
     return result;
 }
 
+int32x4_t vdupq_n_s32(int32_t value) {
+    int32x4_t result = {
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
 int16x8_t vdupq_n_s16(int16_t value) {
     int16x8_t result = {
         value,
@@ -265,6 +279,10 @@ uint16x8_t vdupq_n_u16(uint16_t value) {
 
 float32x4_t vmulq_n_f32(float32x4_t vector, float value) {
     return vector * vdupq_n_f32(value);
+}
+
+int32x4_t vmulq_n_s32(int32x4_t vector, int32_t value) {
+    return vector * vdupq_n_s32(value);
 }
 
 float32x4_t vrecpeq_f32(float32x4_t vector) {
@@ -350,19 +368,19 @@ int16x4_t vmovn_s32(int32x4_t vector) {
 int16x8_t lerp_int16x8(int16_t x0,
                        int16_t x1,
                        int16_t x2,
-                       float32x4_t w1_lowf,
-                       float32x4_t w2_lowf,
-                       float32x4_t w1_highf,
-                       float32x4_t w2_highf) {
-    float32x4_t result_lowf = vdupq_n_f32((float)x0);
-    result_lowf = vaddq_f32(result_lowf, vmulq_n_f32(w1_lowf, (float)(x1 - x0)));
-    result_lowf = vaddq_f32(result_lowf, vmulq_n_f32(w2_lowf, (float)(x2 - x0)));
-    int16x4_t result_low = vmovn_s32(vcvtq_s32_f32(result_lowf));
+                       int32x4_t w1_lowf,
+                       int32x4_t w2_lowf,
+                       int32x4_t w1_highf,
+                       int32x4_t w2_highf) {
+    int32x4_t result_lowf = vdupq_n_s32(x0);
+    result_lowf = vaddq_s32(result_lowf, vmulq_n_s32(w1_lowf, x1 - x0) / vdupq_n_s32(256));
+    result_lowf = vaddq_s32(result_lowf, vmulq_n_s32(w2_lowf, x2 - x0) / vdupq_n_s32(256));
+    int16x4_t result_low = vmovn_s32(result_lowf);
 
-    float32x4_t result_highf = vdupq_n_f32((float)x0);
-    result_highf = vaddq_f32(result_highf, vmulq_n_f32(w1_highf, (float)(x1 - x0)));
-    result_highf = vaddq_f32(result_highf, vmulq_n_f32(w2_highf, (float)(x2 - x0)));
-    int16x4_t result_high = vmovn_s32(vcvtq_s32_f32(result_highf));
+    int32x4_t result_highf = vdupq_n_s32(x0);
+    result_highf = vaddq_s32(result_highf, vmulq_n_s32(w1_highf, x1 - x0) / vdupq_n_s32(256));
+    result_highf = vaddq_s32(result_highf, vmulq_n_s32(w2_highf, x2 - x0) / vdupq_n_s32(256));
+    int16x4_t result_high = vmovn_s32(result_highf);
 
     return vcombine_s16(result_low, result_high);
 }
@@ -380,6 +398,10 @@ int16x8_t lerp_int16x8(int16_t x0,
                                 index); \
     } while(0)
 
+int oneify(int value) {
+    return value == 0 ? 1 : value;
+}
+
 /*__attribute__((always_inline))*/ void draw_pixels(render_state *render_state,
                                                     const vec2i16 *origin,
                                                     const triangle *triangle,
@@ -389,6 +411,18 @@ int16x8_t lerp_int16x8(int16_t x0,
                                                     uint16x8_t mask) {
     uint16x8_t pixels = vdupq_n_u16(0);
 
+    int32x4_t w0_lowf, w1_lowf, w2_lowf;
+    int32x4_t w0_highf, w1_highf, w2_highf;
+    for (int i = 0; i < 4; i++) {
+        w0_lowf[i] = (((int)w0[i] << 8) / oneify((int)w0[i] + (int)w1[i] + (int)w2[i]));
+        w1_lowf[i] = (((int)w1[i] << 8) / oneify((int)w0[i] + (int)w1[i] + (int)w2[i]));
+        w2_lowf[i] = (((int)w2[i] << 8) / oneify((int)w0[i] + (int)w1[i] + (int)w2[i]));
+        w0_highf[i] = (((int)w0[i+4] << 8) / oneify((int)w0[i+4] + (int)w1[i+4] + (int)w2[i+4]));
+        w1_highf[i] = (((int)w1[i+4] << 8) / oneify((int)w0[i+4] + (int)w1[i+4] + (int)w2[i+4]));
+        w2_highf[i] = (((int)w2[i+4] << 8) / oneify((int)w0[i+4] + (int)w1[i+4] + (int)w2[i+4]));
+    }
+
+    /*
     // Extract low half.
     float32x4_t w0_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w0)));
     float32x4_t w1_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w1)));
@@ -406,6 +440,7 @@ int16x8_t lerp_int16x8(int16_t x0,
     w0_highf = vmulq_f32(w0_highf, wfactor_highf);
     w1_highf = vmulq_f32(w1_highf, wfactor_highf);
     w2_highf = vmulq_f32(w2_highf, wfactor_highf);
+    */
 
     // Compute index into the pixel/depth buffer.
     int row = (-origin->y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
