@@ -199,6 +199,10 @@ int16x8_t vandq_s16(int16x8_t a, int16x8_t b) {
     return a & b;
 }
 
+int16x8_t vaddq_s16(int16x8_t a, int16x8_t b) {
+    return a + b;
+}
+
 uint16x8_t vmvnq_u16(uint16x8_t vector) {
     return ~vector;
 }
@@ -367,12 +371,25 @@ int16x4_t vmovn_s32(int32x4_t vector) {
     return result;
 }
 
+int16x8_t vshlq_n_s16(int16x8_t vector, uint8_t bits) {
+    return vector << vdupq_n_s16(bits);
+}
+
 int32x4_t vshlq_n_s32(int32x4_t vector, uint8_t bits) {
     return vector << vdupq_n_s32(bits);
 }
 
+int16x8_t vshrq_n_s16(int16x8_t vector, uint8_t bits) {
+    return vector >> vdupq_n_s16(bits);
+}
+
 int32x4_t vshrq_n_s32(int32x4_t vector, uint8_t bits) {
     return vector >> vdupq_n_s32(bits);
+}
+
+int32x4_t vrecpeq_u32(int32x4_t vector) {
+    // FIXME(pcwalton): Stub!
+    return vector;
 }
 
 #endif
