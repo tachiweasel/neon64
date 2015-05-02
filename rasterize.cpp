@@ -20,7 +20,7 @@
 
 #define FRAMEBUFFER_WIDTH       320
 #define FRAMEBUFFER_HEIGHT      240
-#define WORKER_THREAD_COUNT     1
+#define WORKER_THREAD_COUNT     4
 #define PIXEL_STEP_SIZE         8
 #define TEXTURE_WIDTH           64
 #define TEXTURE_HEIGHT          64
@@ -130,6 +130,20 @@ struct triangle_edge {
 };
 
 #ifdef __arm__
+
+bool is_zero(int16x8_t vector) {
+    uint32_t cond;
+    __asm__("vsli.32 %f0,%e0,#16\n"
+            "vcmp.f64 %f0,#0\n"
+            "vmrs APSR_nzcv,FPSCR\n"
+            "mov %1,#0\n"
+            "moveq %1,#1"
+            : "=w" (vector), "=r" (cond)
+            :
+            : "cc");
+    return cond;
+}
+
 #define COMPARE_GE_INT16X8(mask, a, b, label) \
     int16x8_t tmp; \
     uint32_t cond; \
@@ -380,10 +394,10 @@ int16x8_t lerp_int16x8(int16_t x0,
                                w1_highf,
                                w2_highf);
     int16x8_t z_values = *z_values_ptr;
-    mask &= z < z_values;
-    if ((__int128_t)(mask) == 0)
+    mask = vandq_s16(mask, vcltq_s16(z, z_values));
+    if (is_zero(mask))
         return;
-    *z_values_ptr = (z_values & ~mask) | (z & mask);
+    *z_values_ptr = vorrq_s16(vandq_s16(z_values, ~mask), vandq_s16(z, mask));
 
 #ifdef TEXTURING
     int16x8_t s = vdupq_n_s16(triangle->t0.x) +
@@ -537,7 +551,13 @@ void *worker_thread(void *cookie) {
     return NULL;
 }
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc < 2) {
+        fprintf(stderr, "usage: rasterize SCENE\n");
+        return 0;
+    }
+    FILE *f = fopen(argv[1], "r");
+
     display_list display_list;
 
     display_list.triangles = new triangle[TRIANGLE_COUNT];
@@ -546,10 +566,10 @@ int main() {
     vec4i16 vertices[3];
     vec4u8 colors[3];
     int vertices_len = 0;
-    while (!feof(stdin)) {
+    while (!feof(f)) {
         float x, y, z;
         uint8_t r, g, b, a;
-        if (fscanf(stdin, "%f,%f,%f,%hhd,%hhd,%hhd,%hhd\n", &x, &y, &z, &r, &g, &b, &a) != 7)
+        if (fscanf(f, "%f,%f,%f,%hhd,%hhd,%hhd,%hhd\n", &x, &y, &z, &r, &g, &b, &a) != 7)
             break;
 
         vertices[vertices_len].x = x * (float)(FRAMEBUFFER_WIDTH / 2);
