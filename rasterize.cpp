@@ -397,18 +397,6 @@ int16x8_t lerp_int16x8(int16_t x0,
     return vcombine_s16(result_low, result_high);
 }
 
-#define BLIT(pixels, mask, r, g, b, index) \
-    do { \
-        int16_t r_i = vgetq_lane_s16(r, index); \
-        int16_t g_i = vgetq_lane_s16(g, index); \
-        int16_t b_i = vgetq_lane_s16(b, index); \
-        uint16_t mask_i = vgetq_lane_u16(mask, index); \
-        pixels = vsetq_lane_u16(mask_i & (((r_i >> 3) << 11) | \
-                                          ((g_i >> 2) << 5) | \
-                                          ((b_i >> 3) << 0)), \
-                                pixels, \
-                                index); \
-    } while(0)
 
 int oneify(int value) {
     return value == 0 ? 1 : value;
@@ -476,17 +464,25 @@ int oneify(int value) {
     *z_values_ptr = vorrq_s16(vandq_s16(z_values, vmvnq_u16(mask)), vandq_s16(z, mask));
 
 #ifdef TEXTURING
-    int16x8_t s = vdupq_n_s16(triangle->t0.x) +
-        w1 * vdupq_n_s16(triangle->t1.x - triangle->t0.x) +
-        w2 * vdupq_n_s16(triangle->t2.x - triangle->t0.x);
-    int16x8_t t = vdupq_n_s16(triangle->t0.y) +
-        w1 * vdupq_n_s16(triangle->t1.y - triangle->t0.y) +
-        w2 * vdupq_n_s16(triangle->t2.y - triangle->t0.y);
-    int16x8_t texture_width = vdupq_n_s16(TEXTURE_WIDTH);
-    int16x8_t texture_height = vdupq_n_s16(TEXTURE_HEIGHT);
-    s = s % texture_width;
-    t = t % texture_height;
-    int16x8_t texture_index = t * texture_width + s;
+    int16x8_t s = lerp_int16x8(triangle->t0.x,
+                               triangle->t1.x,
+                               triangle->t2.x,
+                               w1_lowf,
+                               w2_lowf,
+                               w1_highf,
+                               w2_highf);
+    int16x8_t t = lerp_int16x8(triangle->t0.x,
+                               triangle->t1.x,
+                               triangle->t2.x,
+                               w1_lowf,
+                               w2_lowf,
+                               w1_highf,
+                               w2_highf);
+    int16x8_t texture_width_mask = vdupq_n_s16(TEXTURE_WIDTH - 1);
+    int16x8_t texture_height_mask = vdupq_n_s16(TEXTURE_HEIGHT - 1);
+    s = vandq_s16(s, texture_width_mask);
+    t = vandq_s16(t, texture_height_mask);
+    int16x8_t texture_index = vaddq_s16(vmulq_n_s16(t, TEXTURE_WIDTH), s);
 
     SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 0);
     SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 1);
@@ -529,16 +525,10 @@ int oneify(int value) {
                                w1_highf,
                                w2_highf);
 
-    BLIT(pixels, mask, r, g, b, 0);
-    /*
-    BLIT(pixels, mask, r, g, b, 1);
-    BLIT(pixels, mask, r, g, b, 2);
-    BLIT(pixels, mask, r, g, b, 3);
-    BLIT(pixels, mask, r, g, b, 4);
-    BLIT(pixels, mask, r, g, b, 5);
-    BLIT(pixels, mask, r, g, b, 6);
-    BLIT(pixels, mask, r, g, b, 7);
-    */
+    r = vshlq_n_s16(vshrq_n_s16(r, 3), 11);
+    g = vshlq_n_s16(vshrq_n_s16(g, 2), 5);
+    b = vshrq_n_s16(b, 3);
+    pixels = vandq_s16(mask, vorrq_s16(vorrq_s16(r, g), b));
 #endif
 
 #endif
