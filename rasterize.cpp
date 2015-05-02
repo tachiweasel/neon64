@@ -20,7 +20,7 @@
 
 #define FRAMEBUFFER_WIDTH       320
 #define FRAMEBUFFER_HEIGHT      240
-#define WORKER_THREAD_COUNT     1
+#define WORKER_THREAD_COUNT     4
 #define PIXEL_STEP_SIZE         8
 #define TEXTURE_WIDTH           64
 #define TEXTURE_HEIGHT          64
@@ -285,6 +285,10 @@ int32x4_t vmulq_n_s32(int32x4_t vector, int32_t value) {
     return vector * vdupq_n_s32(value);
 }
 
+int32x4_t vmulq_s32(int32x4_t a, int32x4_t b) {
+    return a * b;
+}
+
 float32x4_t vrecpeq_f32(float32x4_t vector) {
     return vdupq_n_f32(1.0) / vector;
 }
@@ -363,8 +367,12 @@ int16x4_t vmovn_s32(int32x4_t vector) {
     return result;
 }
 
-int32x4_t vshl_n_s32(int32x4_t vector, uint8_t bits) {
+int32x4_t vshlq_n_s32(int32x4_t vector, uint8_t bits) {
     return vector << vdupq_n_s32(bits);
+}
+
+int32x4_t vshrq_n_s32(int32x4_t vector, uint8_t bits) {
+    return vector >> vdupq_n_s32(bits);
 }
 
 #endif
@@ -377,13 +385,13 @@ int16x8_t lerp_int16x8(int16_t x0,
                        int32x4_t w1_highf,
                        int32x4_t w2_highf) {
     int32x4_t result_lowf = vdupq_n_s32(x0);
-    result_lowf = vaddq_s32(result_lowf, vmulq_n_s32(w1_lowf, x1 - x0) / vdupq_n_s32(256));
-    result_lowf = vaddq_s32(result_lowf, vmulq_n_s32(w2_lowf, x2 - x0) / vdupq_n_s32(256));
+    result_lowf = vaddq_s32(result_lowf, vshrq_n_s32(vmulq_n_s32(w1_lowf, x1 - x0), 8));
+    result_lowf = vaddq_s32(result_lowf, vshrq_n_s32(vmulq_n_s32(w2_lowf, x2 - x0), 8));
     int16x4_t result_low = vmovn_s32(result_lowf);
 
     int32x4_t result_highf = vdupq_n_s32(x0);
-    result_highf = vaddq_s32(result_highf, vmulq_n_s32(w1_highf, x1 - x0) / vdupq_n_s32(256));
-    result_highf = vaddq_s32(result_highf, vmulq_n_s32(w2_highf, x2 - x0) / vdupq_n_s32(256));
+    result_highf = vaddq_s32(result_highf, vshrq_n_s32(vmulq_n_s32(w1_highf, x1 - x0), 8));
+    result_highf = vaddq_s32(result_highf, vshrq_n_s32(vmulq_n_s32(w2_highf, x2 - x0), 8));
     int16x4_t result_high = vmovn_s32(result_highf);
 
     return vcombine_s16(result_low, result_high);
@@ -424,17 +432,28 @@ int oneify(int value) {
     int32x4_t w2_highf = vmovl_s16(vget_high_s16(w2));
     int32x4_t wsum_highf = vaddq_s32(w0_highf, vaddq_s32(w1_highf, w2_highf));
 
+    wsum_lowf = vshrq_n_s32(vrecpeq_u32(wsum_lowf), 23);
+    wsum_highf = vshrq_n_s32(vrecpeq_u32(wsum_highf), 23);
+
+    w0_lowf = vmulq_s32(w0_lowf, wsum_lowf);
+    w1_lowf = vmulq_s32(w1_lowf, wsum_lowf);
+    w2_lowf = vmulq_s32(w2_lowf, wsum_lowf);
+    w0_highf = vmulq_s32(w0_highf, wsum_highf);
+    w1_highf = vmulq_s32(w1_highf, wsum_highf);
+    w2_highf = vmulq_s32(w2_highf, wsum_highf);
+
+    /*
     wsum_lowf = ((wsum_lowf == vdupq_n_s32(0)) & vdupq_n_s32(1)) |
         ((wsum_lowf != vdupq_n_s32(0)) & wsum_lowf);
     wsum_highf = ((wsum_highf == vdupq_n_s32(0)) & vdupq_n_s32(1)) |
         ((wsum_highf != vdupq_n_s32(0)) & wsum_highf);
 
-    w0_lowf = vshl_n_s32(w0_lowf, 8) / wsum_lowf;
-    w1_lowf = vshl_n_s32(w1_lowf, 8) / wsum_lowf;
-    w2_lowf = vshl_n_s32(w2_lowf, 8) / wsum_lowf;
-    w0_highf = vshl_n_s32(w0_highf, 8) / wsum_highf;
-    w1_highf = vshl_n_s32(w1_highf, 8) / wsum_highf;
-    w2_highf = vshl_n_s32(w2_highf, 8) / wsum_highf;
+    w0_lowf = vshlq_n_s32(w0_lowf, 8) * (1/wsum_lowf);
+    w1_lowf = vshlq_n_s32(w1_lowf, 8) / wsum_lowf;
+    w2_lowf = vshlq_n_s32(w2_lowf, 8) / wsum_lowf;
+    w0_highf = vshlq_n_s32(w0_highf, 8) / wsum_highf;
+    w1_highf = vshlq_n_s32(w1_highf, 8) / wsum_highf;
+    w2_highf = vshlq_n_s32(w2_highf, 8) / wsum_highf;*/
 
     // Compute index into the pixel/depth buffer.
     int row = (-origin->y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
@@ -511,6 +530,7 @@ int oneify(int value) {
                                w2_highf);
 
     BLIT(pixels, mask, r, g, b, 0);
+    /*
     BLIT(pixels, mask, r, g, b, 1);
     BLIT(pixels, mask, r, g, b, 2);
     BLIT(pixels, mask, r, g, b, 3);
@@ -518,6 +538,7 @@ int oneify(int value) {
     BLIT(pixels, mask, r, g, b, 5);
     BLIT(pixels, mask, r, g, b, 6);
     BLIT(pixels, mask, r, g, b, 7);
+    */
 #endif
 
 #endif
