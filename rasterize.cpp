@@ -384,19 +384,16 @@ int16x8_t lerp_int16x8(int16_t x0,
                        int32x4_t w2_lowf,
                        int32x4_t w1_highf,
                        int32x4_t w2_highf) {
-    int32x4_t result_lowf = vdupq_n_s32(x0);
-    result_lowf = vaddq_s32(result_lowf, vshrq_n_s32(vmulq_n_s32(w1_lowf, x1 - x0), 8));
-    result_lowf = vaddq_s32(result_lowf, vshrq_n_s32(vmulq_n_s32(w2_lowf, x2 - x0), 8));
-    int16x4_t result_low = vmovn_s32(result_lowf);
+    int32x4_t x1_x0_lowf = vshrq_n_s32(vmulq_n_s32(w1_lowf, x1 - x0), 8);
+    int32x4_t x1_x0_highf = vshrq_n_s32(vmulq_n_s32(w1_highf, x1 - x0), 8);
+    int16x8_t x1_x0 = vcombine_s16(vmovn_s32(x1_x0_lowf), vmovn_s32(x1_x0_highf));
 
-    int32x4_t result_highf = vdupq_n_s32(x0);
-    result_highf = vaddq_s32(result_highf, vshrq_n_s32(vmulq_n_s32(w1_highf, x1 - x0), 8));
-    result_highf = vaddq_s32(result_highf, vshrq_n_s32(vmulq_n_s32(w2_highf, x2 - x0), 8));
-    int16x4_t result_high = vmovn_s32(result_highf);
+    int32x4_t x2_x0_lowf = vshrq_n_s32(vmulq_n_s32(w1_lowf, x2 - x0), 8);
+    int32x4_t x2_x0_highf = vshrq_n_s32(vmulq_n_s32(w1_highf, x2 - x0), 8);
+    int16x8_t x2_x0 = vcombine_s16(vmovn_s32(x2_x0_lowf), vmovn_s32(x2_x0_highf));
 
-    return vcombine_s16(result_low, result_high);
+    return vaddq_s16(vaddq_s16(vdupq_n_s16(x0), x1_x0), x2_x0);
 }
-
 
 int oneify(int value) {
     return value == 0 ? 1 : value;
@@ -544,10 +541,10 @@ vec2i16 rand_vec2i16() {
     return result;
 }
 
-int16x8_t setup_triangle_edge(triangle_edge *edge,
-                              const vec4i16 *v0,
-                              const vec4i16 *v1,
-                              const vec2i16 *origin) {
+inline int16x8_t setup_triangle_edge(triangle_edge *edge,
+                                     const vec4i16 *v0,
+                                     const vec4i16 *v1,
+                                     const vec2i16 *origin) {
     int16_t a = v0->y - v1->y;
     int16_t b = v1->x - v0->x;
     int16_t c = v0->x * v1->y - v0->y * v1->x;
