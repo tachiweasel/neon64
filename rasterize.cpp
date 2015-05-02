@@ -1,5 +1,7 @@
 // neon64/rasterize.cpp
 
+#include "rasterize.h"
+
 #include <limits.h>
 #include <pthread.h>
 #include <sys/time.h>
@@ -18,8 +20,6 @@
 #include <SDL2/SDL.h>
 #endif
 
-#define FRAMEBUFFER_WIDTH       320
-#define FRAMEBUFFER_HEIGHT      240
 #define WORKER_THREAD_COUNT     4
 #define PIXEL_STEP_SIZE         8
 #define TEXTURE_WIDTH           64
