@@ -175,6 +175,34 @@ bool is_zero(int16x8_t vector) {
 
 #ifndef __arm__
 
+bool is_zero(int16x8_t vector) {
+    return (__int128_t)vector == 0;
+}
+
+float32x4_t vaddq_f32(float32x4_t a, float32x4_t b) {
+    return a + b;
+}
+
+float32x4_t vmulq_f32(float32x4_t a, float32x4_t b) {
+    return a * b;
+}
+
+int16x8_t vcltq_s16(int16x8_t a, int16x8_t b) {
+    return a < b;
+}
+
+int16x8_t vandq_s16(int16x8_t a, int16x8_t b) {
+    return a & b;
+}
+
+uint16x8_t vmvnq_u16(uint16x8_t vector) {
+    return ~vector;
+}
+
+int16x8_t vorrq_s16(int16x8_t a, int16x8_t b) {
+    return a | b;
+}
+
 int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
     return vector[index];
 }
