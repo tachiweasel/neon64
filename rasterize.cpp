@@ -408,8 +408,8 @@ inline int16x8_t lerp_int16x8(int16_t x0,
     int32x4_t x1_x0_highf = vshrq_n_s32(vmulq_n_s32(w1_highf, x1 - x0), 8);
     int16x8_t x1_x0 = vcombine_s16(vmovn_s32(x1_x0_lowf), vmovn_s32(x1_x0_highf));
 
-    int32x4_t x2_x0_lowf = vshrq_n_s32(vmulq_n_s32(w1_lowf, x2 - x0), 8);
-    int32x4_t x2_x0_highf = vshrq_n_s32(vmulq_n_s32(w1_highf, x2 - x0), 8);
+    int32x4_t x2_x0_lowf = vshrq_n_s32(vmulq_n_s32(w2_lowf, x2 - x0), 8);
+    int32x4_t x2_x0_highf = vshrq_n_s32(vmulq_n_s32(w2_highf, x2 - x0), 8);
     int16x8_t x2_x0 = vcombine_s16(vmovn_s32(x2_x0_lowf), vmovn_s32(x2_x0_highf));
 
     return vaddq_s16(vaddq_s16(vdupq_n_s16(x0), x1_x0), x2_x0);
@@ -440,10 +440,8 @@ void draw_pixels(render_state *render_state,
     wsum_lowf = vshrq_n_s32(vrecpeq_u32(wsum_lowf), 23);
     wsum_highf = vshrq_n_s32(vrecpeq_u32(wsum_highf), 23);
 
-    w0_lowf = vmulq_s32(w0_lowf, wsum_lowf);
     w1_lowf = vmulq_s32(w1_lowf, wsum_lowf);
     w2_lowf = vmulq_s32(w2_lowf, wsum_lowf);
-    w0_highf = vmulq_s32(w0_highf, wsum_highf);
     w1_highf = vmulq_s32(w1_highf, wsum_highf);
     w2_highf = vmulq_s32(w2_highf, wsum_highf);
 
