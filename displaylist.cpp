@@ -1,6 +1,7 @@
 // neon64/displaylist.cpp
 
 #include "displaylist.h"
+#include "rasterize.h"
 #include "rdp.h"
 #include "simd.h"
 #include <stdio.h>
@@ -11,6 +12,18 @@
 #define DLIST_JUMP  1
 
 typedef int32_t (*display_op_t)(display_item *item);
+
+struct rdp_vertex {
+    int16_t y;
+    int16_t x;
+    int16_t flags;
+    int16_t z;
+
+    int16_t t;
+    int16_t s;
+
+    uint32_t rgba;
+};
 
 // Converts a segmented address to a flat RDRAM address.
 uint32_t segment_address(uint32_t address) {
@@ -141,30 +154,30 @@ matrix4x4f32 multiply_matrix4x4f32(matrix4x4f32 a, matrix4x4f32 b) {
     return result;
 }
 
-int16x4_t multiply_matrix4x4f32_int16x4(matrix4x4f32 *a, int16x4_t x) {
-    int16x4_t ax = vdup_n_s16(0);
-    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[0], 0) * (float)vget_lane_s16(x, 0) +
-                                 vgetq_lane_f32(a->m[0], 1) * (float)vget_lane_s16(x, 1) +
-                                 vgetq_lane_f32(a->m[0], 2) * (float)vget_lane_s16(x, 2) +
-                                 vgetq_lane_f32(a->m[0], 3) * (float)vget_lane_s16(x, 3)),
+float32x4_t multiply_matrix4x4f32_float32x4(matrix4x4f32 *a, float32x4_t x) {
+    float32x4_t ax = vdupq_n_f32(0.0);
+    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 0) * vgetq_lane_f32(x, 0) +
+                         vgetq_lane_f32(a->m[1], 0) * vgetq_lane_f32(x, 1) +
+                         vgetq_lane_f32(a->m[2], 0) * vgetq_lane_f32(x, 2) +
+                         vgetq_lane_f32(a->m[3], 0) * vgetq_lane_f32(x, 3)),
                         ax,
                         0);
-    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[1], 0) * (float)vget_lane_s16(x, 0) +
-                                 vgetq_lane_f32(a->m[1], 1) * (float)vget_lane_s16(x, 1) +
-                                 vgetq_lane_f32(a->m[1], 2) * (float)vget_lane_s16(x, 2) +
-                                 vgetq_lane_f32(a->m[1], 3) * (float)vget_lane_s16(x, 3)),
+    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 1) * vgetq_lane_f32(x, 0) +
+                         vgetq_lane_f32(a->m[1], 1) * vgetq_lane_f32(x, 1) +
+                         vgetq_lane_f32(a->m[2], 1) * vgetq_lane_f32(x, 2) +
+                         vgetq_lane_f32(a->m[3], 1) * vgetq_lane_f32(x, 3)),
                         ax,
                         1);
-    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[2], 0) * (float)vget_lane_s16(x, 0) +
-                                 vgetq_lane_f32(a->m[2], 1) * (float)vget_lane_s16(x, 1) +
-                                 vgetq_lane_f32(a->m[2], 2) * (float)vget_lane_s16(x, 2) +
-                                 vgetq_lane_f32(a->m[2], 3) * (float)vget_lane_s16(x, 3)),
+    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 2) * vgetq_lane_f32(x, 0) +
+                         vgetq_lane_f32(a->m[1], 2) * vgetq_lane_f32(x, 1) +
+                         vgetq_lane_f32(a->m[2], 2) * vgetq_lane_f32(x, 2) +
+                         vgetq_lane_f32(a->m[3], 2) * vgetq_lane_f32(x, 3)),
                         ax,
                         2);
-    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[3], 0) * (float)vget_lane_s16(x, 0) +
-                                 vgetq_lane_f32(a->m[3], 1) * (float)vget_lane_s16(x, 1) +
-                                 vgetq_lane_f32(a->m[3], 2) * (float)vget_lane_s16(x, 2) +
-                                 vgetq_lane_f32(a->m[3], 3) * (float)vget_lane_s16(x, 3)),
+    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 3) * vgetq_lane_f32(x, 0) +
+                         vgetq_lane_f32(a->m[1], 3) * vgetq_lane_f32(x, 1) +
+                         vgetq_lane_f32(a->m[2], 3) * vgetq_lane_f32(x, 2) +
+                         vgetq_lane_f32(a->m[3], 3) * vgetq_lane_f32(x, 3)),
                         ax,
                         3);
     return ax;
@@ -173,9 +186,58 @@ int16x4_t multiply_matrix4x4f32_int16x4(matrix4x4f32 *a, int16x4_t x) {
 void transform_and_light_vertex(vertex *vertex) {
     matrix4x4f32 *projection = &plugin.rdp.projection[plugin.rdp.projection_index];
     matrix4x4f32 *modelview = &plugin.rdp.modelview[plugin.rdp.modelview_index];
-    int16x4_t position = multiply_matrix4x4f32_int16x4(modelview, vertex->position);
-    position = multiply_matrix4x4f32_int16x4(projection, vertex->position);
-    vertex->position = position;
+    matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
+    printf("matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
+           vgetq_lane_f32(tmp.m[0], 0),
+           vgetq_lane_f32(tmp.m[0], 1),
+           vgetq_lane_f32(tmp.m[0], 2),
+           vgetq_lane_f32(tmp.m[0], 3),
+           vgetq_lane_f32(tmp.m[1], 0),
+           vgetq_lane_f32(tmp.m[1], 1),
+           vgetq_lane_f32(tmp.m[1], 2),
+           vgetq_lane_f32(tmp.m[1], 3),
+           vgetq_lane_f32(tmp.m[2], 0),
+           vgetq_lane_f32(tmp.m[2], 1),
+           vgetq_lane_f32(tmp.m[2], 2),
+           vgetq_lane_f32(tmp.m[2], 3),
+           vgetq_lane_f32(tmp.m[3], 0),
+           vgetq_lane_f32(tmp.m[3], 1),
+           vgetq_lane_f32(tmp.m[3], 2),
+           vgetq_lane_f32(tmp.m[3], 3));
+
+    float32x4_t position = vcvtq_f32_s32(vmovl_s16(vertex->position));
+    printf("vertex shading: %f,%f,%f,%f -> ",
+           vgetq_lane_f32(position, 0),
+           vgetq_lane_f32(position, 1),
+           vgetq_lane_f32(position, 2),
+           vgetq_lane_f32(position, 3));
+
+    position = multiply_matrix4x4f32_float32x4(&tmp, position);
+    //position = multiply_matrix4x4f32_float32x4(projection, position);
+
+    printf("%f,%f,%f,%f -> ",
+           vgetq_lane_f32(position, 0),
+           vgetq_lane_f32(position, 1),
+           vgetq_lane_f32(position, 2),
+           vgetq_lane_f32(position, 3));
+
+    // Perform perspective division.
+    float w = (float)vgetq_lane_f32(position, 3);
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 0) / w, position, 0);
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 1) / w, position, 1);
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 2) / w, position, 2);
+    position = vsetq_lane_f32(1.0 / w, position, 3);
+
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 0) * (FRAMEBUFFER_WIDTH / 2), position, 0);
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 1) * (FRAMEBUFFER_HEIGHT / 2), position, 1);
+
+    printf("%f,%f,%f,%f\n",
+           vgetq_lane_f32(position, 0),
+           vgetq_lane_f32(position, 1),
+           vgetq_lane_f32(position, 2),
+           vgetq_lane_f32(position, 3));
+
+    vertex->position = vmovn_s32(vcvtq_s32_f32(position));
 }
 
 int32_t op_noop(display_item *item) {
@@ -194,11 +256,52 @@ int32_t op_set_matrix(display_item *item) {
            push ? "PUSH" : "OVERWRITE");
 
     matrix4x4f32 new_matrix = load_matrix(addr);
+
+    printf("set %s loading:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
+           projection ? "projection" : "modelview",
+           vgetq_lane_f32(new_matrix.m[0], 0),
+           vgetq_lane_f32(new_matrix.m[0], 1),
+           vgetq_lane_f32(new_matrix.m[0], 2),
+           vgetq_lane_f32(new_matrix.m[0], 3),
+           vgetq_lane_f32(new_matrix.m[1], 0),
+           vgetq_lane_f32(new_matrix.m[1], 1),
+           vgetq_lane_f32(new_matrix.m[1], 2),
+           vgetq_lane_f32(new_matrix.m[1], 3),
+           vgetq_lane_f32(new_matrix.m[2], 0),
+           vgetq_lane_f32(new_matrix.m[2], 1),
+           vgetq_lane_f32(new_matrix.m[2], 2),
+           vgetq_lane_f32(new_matrix.m[2], 3),
+           vgetq_lane_f32(new_matrix.m[3], 0),
+           vgetq_lane_f32(new_matrix.m[3], 1),
+           vgetq_lane_f32(new_matrix.m[3], 2),
+           vgetq_lane_f32(new_matrix.m[3], 3));
+
     if (projection) {
         if (plugin.rdp.projection_index < 15 && push) {
             plugin.rdp.projection[plugin.rdp.projection_index + 1] =
                 plugin.rdp.projection[plugin.rdp.projection_index];
             plugin.rdp.projection_index++;
+        }
+        if (!set) {
+            new_matrix = multiply_matrix4x4f32(new_matrix,
+                                               plugin.rdp.projection[plugin.rdp.projection_index]);
+            printf("set projection post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
+                   vgetq_lane_f32(new_matrix.m[0], 0),
+                   vgetq_lane_f32(new_matrix.m[0], 1),
+                   vgetq_lane_f32(new_matrix.m[0], 2),
+                   vgetq_lane_f32(new_matrix.m[0], 3),
+                   vgetq_lane_f32(new_matrix.m[1], 0),
+                   vgetq_lane_f32(new_matrix.m[1], 1),
+                   vgetq_lane_f32(new_matrix.m[1], 2),
+                   vgetq_lane_f32(new_matrix.m[1], 3),
+                   vgetq_lane_f32(new_matrix.m[2], 0),
+                   vgetq_lane_f32(new_matrix.m[2], 1),
+                   vgetq_lane_f32(new_matrix.m[2], 2),
+                   vgetq_lane_f32(new_matrix.m[2], 3),
+                   vgetq_lane_f32(new_matrix.m[3], 0),
+                   vgetq_lane_f32(new_matrix.m[3], 1),
+                   vgetq_lane_f32(new_matrix.m[3], 2),
+                   vgetq_lane_f32(new_matrix.m[3], 3));
         }
         plugin.rdp.projection[plugin.rdp.projection_index] = new_matrix;
     } else {
@@ -206,6 +309,27 @@ int32_t op_set_matrix(display_item *item) {
             plugin.rdp.modelview[plugin.rdp.modelview_index + 1] =
                 plugin.rdp.modelview[plugin.rdp.modelview_index];
             plugin.rdp.modelview_index++;
+        }
+        if (!set) {
+            new_matrix = multiply_matrix4x4f32(new_matrix,
+                                               plugin.rdp.modelview[plugin.rdp.modelview_index]);
+            printf("set modelview post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
+                   vgetq_lane_f32(new_matrix.m[0], 0),
+                   vgetq_lane_f32(new_matrix.m[0], 1),
+                   vgetq_lane_f32(new_matrix.m[0], 2),
+                   vgetq_lane_f32(new_matrix.m[0], 3),
+                   vgetq_lane_f32(new_matrix.m[1], 0),
+                   vgetq_lane_f32(new_matrix.m[1], 1),
+                   vgetq_lane_f32(new_matrix.m[1], 2),
+                   vgetq_lane_f32(new_matrix.m[1], 3),
+                   vgetq_lane_f32(new_matrix.m[2], 0),
+                   vgetq_lane_f32(new_matrix.m[2], 1),
+                   vgetq_lane_f32(new_matrix.m[2], 2),
+                   vgetq_lane_f32(new_matrix.m[2], 3),
+                   vgetq_lane_f32(new_matrix.m[3], 0),
+                   vgetq_lane_f32(new_matrix.m[3], 1),
+                   vgetq_lane_f32(new_matrix.m[3], 2),
+                   vgetq_lane_f32(new_matrix.m[3], 3));
         }
         plugin.rdp.modelview[plugin.rdp.modelview_index] = new_matrix;
     }
@@ -219,7 +343,20 @@ int32_t op_vertex(display_item *item) {
     uint32_t addr = segment_address(item->arg32);
     printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
     for (uint8_t i = 0; i < count; i++) {
-        plugin.rdp.vertices[i] = *((vertex *)(&plugin.memory.rdram[addr]));
+        struct rdp_vertex *rdp_vertex = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
+        vertex *vertex = &plugin.rdp.vertices[i];
+
+        int16x4_t position = vdup_n_s16(0);
+        position = vset_lane_s16(rdp_vertex->x, position, 0);
+        position = vset_lane_s16(rdp_vertex->y, position, 1);
+        position = vset_lane_s16(rdp_vertex->z, position, 2);
+        position = vset_lane_s16(1, position, 3);
+        vertex->position = position;
+
+        vertex->t = rdp_vertex->t;
+        vertex->s = rdp_vertex->s;
+        vertex->rgba = rdp_vertex->rgba;
+
         transform_and_light_vertex(&plugin.rdp.vertices[i]);
     }
     return 0;

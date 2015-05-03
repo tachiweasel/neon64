@@ -25,13 +25,10 @@ struct registers {
 struct vertex {
     int16x4_t position;
 
-    int16_t t;
     int16_t s;
+    int16_t t;
 
-    uint8_t a;
-    uint8_t b;
-    uint8_t g;
-    uint8_t r;
+    uint32_t rgba;
 };
 
 struct rdp {
