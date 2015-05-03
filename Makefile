@@ -5,8 +5,10 @@ SO?=.so
 
 TARGET=mupen64plus-video-neon64$(SO)
 
-$(TARGET):	plugin.cpp rasterize.cpp
-	$(CXX) $(CXXFLAGS) -o $@ -dynamiclib $(LIBS) $^
+SRC=displaylist.cpp plugin.cpp rasterize.cpp
+
+$(TARGET):	$(SRC) displaylist.h plugin.h rasterize.h rdp.h
+	$(CXX) $(CXXFLAGS) -o $@ -dynamiclib $(LIBS) $(SRC)
 
 rasterize:	rasterize.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $(LIBS) $<

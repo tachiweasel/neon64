@@ -1,10 +1,14 @@
 // neon64/plugin.cpp
 
+#include "displaylist.h"
 #include "m64p_plugin.h"
 #include "m64p_vidext.h"
 #include "rasterize.h"
+#include "rdp.h"
 #include <SDL2/SDL.h>
 #include <stdlib.h>
+
+struct plugin plugin;
 
 extern "C" int dummy_gl_function() {
     return 0;
@@ -43,6 +47,10 @@ extern "C" int ChangeWindow() {
 }
 
 extern "C" int InitiateGFX(GFX_INFO gfx_info) {
+    plugin.memory.rdram = gfx_info.RDRAM;
+    plugin.memory.dmem = gfx_info.DMEM;
+    plugin.registers.mi_intr = gfx_info.MI_INTR_REG;
+
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Window *window = SDL_CreateWindow("neon64",
@@ -58,7 +66,12 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
 
 extern "C" void MoveScreen(int xpos, int ypos) {}
 
-extern "C" void ProcessDList() {}
+extern "C" void ProcessDList() {
+    process_display_list((display_list *)&plugin.memory.dmem[0x0fc0]);
+
+    send_dp_interrupt();
+    send_sp_interrupt();
+}
 
 extern "C" void ProcessRDPList() {}
 
