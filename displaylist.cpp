@@ -187,6 +187,7 @@ void transform_and_light_vertex(vertex *vertex) {
     matrix4x4f32 *projection = &plugin.rdp.projection[plugin.rdp.projection_index];
     matrix4x4f32 *modelview = &plugin.rdp.modelview[plugin.rdp.modelview_index];
     matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
+#if 0
     printf("matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
            vgetq_lane_f32(tmp.m[0], 0),
            vgetq_lane_f32(tmp.m[0], 1),
@@ -204,22 +205,27 @@ void transform_and_light_vertex(vertex *vertex) {
            vgetq_lane_f32(tmp.m[3], 1),
            vgetq_lane_f32(tmp.m[3], 2),
            vgetq_lane_f32(tmp.m[3], 3));
+#endif
 
     float32x4_t position = vcvtq_f32_s32(vmovl_s16(vertex->position));
+#if 0
     printf("vertex shading: %f,%f,%f,%f -> ",
            vgetq_lane_f32(position, 0),
            vgetq_lane_f32(position, 1),
            vgetq_lane_f32(position, 2),
            vgetq_lane_f32(position, 3));
+#endif
 
     position = multiply_matrix4x4f32_float32x4(&tmp, position);
     //position = multiply_matrix4x4f32_float32x4(projection, position);
 
+#if 0
     printf("%f,%f,%f,%f -> ",
            vgetq_lane_f32(position, 0),
            vgetq_lane_f32(position, 1),
            vgetq_lane_f32(position, 2),
            vgetq_lane_f32(position, 3));
+#endif
 
     // Perform perspective division.
     float w = (float)vgetq_lane_f32(position, 3);
@@ -231,11 +237,13 @@ void transform_and_light_vertex(vertex *vertex) {
     position = vsetq_lane_f32(vgetq_lane_f32(position, 0) * (FRAMEBUFFER_WIDTH / 2), position, 0);
     position = vsetq_lane_f32(vgetq_lane_f32(position, 1) * (FRAMEBUFFER_HEIGHT / 2), position, 1);
 
+#if 0
     printf("%f,%f,%f,%f\n",
            vgetq_lane_f32(position, 0),
            vgetq_lane_f32(position, 1),
            vgetq_lane_f32(position, 2),
            vgetq_lane_f32(position, 3));
+#endif
 
     vertex->position = vmovn_s32(vcvtq_s32_f32(position));
 }
@@ -257,6 +265,7 @@ int32_t op_set_matrix(display_item *item) {
 
     matrix4x4f32 new_matrix = load_matrix(addr);
 
+#if 0
     printf("set %s loading:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
            projection ? "projection" : "modelview",
            vgetq_lane_f32(new_matrix.m[0], 0),
@@ -275,6 +284,7 @@ int32_t op_set_matrix(display_item *item) {
            vgetq_lane_f32(new_matrix.m[3], 1),
            vgetq_lane_f32(new_matrix.m[3], 2),
            vgetq_lane_f32(new_matrix.m[3], 3));
+#endif
 
     if (projection) {
         if (plugin.rdp.projection_index < 15 && push) {
@@ -285,6 +295,7 @@ int32_t op_set_matrix(display_item *item) {
         if (!set) {
             new_matrix = multiply_matrix4x4f32(new_matrix,
                                                plugin.rdp.projection[plugin.rdp.projection_index]);
+#if 0
             printf("set projection post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
                    vgetq_lane_f32(new_matrix.m[0], 0),
                    vgetq_lane_f32(new_matrix.m[0], 1),
@@ -302,6 +313,7 @@ int32_t op_set_matrix(display_item *item) {
                    vgetq_lane_f32(new_matrix.m[3], 1),
                    vgetq_lane_f32(new_matrix.m[3], 2),
                    vgetq_lane_f32(new_matrix.m[3], 3));
+#endif
         }
         plugin.rdp.projection[plugin.rdp.projection_index] = new_matrix;
     } else {
@@ -313,6 +325,7 @@ int32_t op_set_matrix(display_item *item) {
         if (!set) {
             new_matrix = multiply_matrix4x4f32(new_matrix,
                                                plugin.rdp.modelview[plugin.rdp.modelview_index]);
+#if 0
             printf("set modelview post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
                    vgetq_lane_f32(new_matrix.m[0], 0),
                    vgetq_lane_f32(new_matrix.m[0], 1),
@@ -330,6 +343,7 @@ int32_t op_set_matrix(display_item *item) {
                    vgetq_lane_f32(new_matrix.m[3], 1),
                    vgetq_lane_f32(new_matrix.m[3], 2),
                    vgetq_lane_f32(new_matrix.m[3], 3));
+#endif
         }
         plugin.rdp.modelview[plugin.rdp.modelview_index] = new_matrix;
     }
