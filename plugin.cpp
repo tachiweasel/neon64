@@ -10,6 +10,8 @@
 
 struct plugin plugin;
 
+struct plugin_thread plugin_thread;
+
 extern "C" int dummy_gl_function() {
     return 0;
 }
@@ -46,10 +48,15 @@ extern "C" int ChangeWindow() {
     return 1;
 }
 
+SDL_Renderer *renderer;
+SDL_Texture *texture;
+
 extern "C" int InitiateGFX(GFX_INFO gfx_info) {
     plugin.memory.rdram = gfx_info.RDRAM;
     plugin.memory.dmem = gfx_info.DMEM;
     plugin.registers.mi_intr = gfx_info.MI_INTR_REG;
+
+    init_render_state(&plugin_thread.render_state);
 
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -61,6 +68,13 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
                                           0);
     SDL_GL_CreateContext(window);
 
+    renderer = SDL_CreateRenderer(window, -1, 0);
+    texture = SDL_CreateTexture(renderer,
+                                SDL_PIXELFORMAT_RGB565,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                FRAMEBUFFER_WIDTH,
+                                FRAMEBUFFER_HEIGHT);
+
     return 1;
 }
 
@@ -68,6 +82,14 @@ extern "C" void MoveScreen(int xpos, int ypos) {}
 
 extern "C" void ProcessDList() {
     process_display_list((display_list *)&plugin.memory.dmem[0x0fc0]);
+
+    SDL_UpdateTexture(texture,
+                      NULL,
+                      plugin_thread->render_state->framebuffer->pixels,
+                      FRAMEBUFFER_WIDTH * sizeof(uint16_t));
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, texture, NULL, NULL);
+    SDL_RenderPresent(renderer);
 
     send_dp_interrupt();
     send_sp_interrupt();

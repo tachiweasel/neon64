@@ -27,7 +27,7 @@ struct rdp_vertex {
 
 // Converts a segmented address to a flat RDRAM address.
 uint32_t segment_address(uint32_t address) {
-    return plugin.rdp.segments[(address >> 24) & 0xf] + (address & 0x00ffffff);
+    return plugin_thread.rdp.segments[(address >> 24) & 0xf] + (address & 0x00ffffff);
 }
 
 // NB: The address is a flat RDRAM address, not a segmented address.
@@ -184,8 +184,8 @@ float32x4_t multiply_matrix4x4f32_float32x4(matrix4x4f32 *a, float32x4_t x) {
 }
 
 void transform_and_light_vertex(vertex *vertex) {
-    matrix4x4f32 *projection = &plugin.rdp.projection[plugin.rdp.projection_index];
-    matrix4x4f32 *modelview = &plugin.rdp.modelview[plugin.rdp.modelview_index];
+    matrix4x4f32 *projection = &plugin_thread.rdp.projection[plugin_thread.rdp.projection_index];
+    matrix4x4f32 *modelview = &plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index];
     matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
 #if 0
     printf("matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
@@ -287,14 +287,15 @@ int32_t op_set_matrix(display_item *item) {
 #endif
 
     if (projection) {
-        if (plugin.rdp.projection_index < 15 && push) {
-            plugin.rdp.projection[plugin.rdp.projection_index + 1] =
-                plugin.rdp.projection[plugin.rdp.projection_index];
-            plugin.rdp.projection_index++;
+        if (plugin_thread.rdp.projection_index < 15 && push) {
+            plugin_thread.rdp.projection[plugin_thread.rdp.projection_index + 1] =
+                plugin_thread.rdp.projection[plugin_thread.rdp.projection_index];
+            plugin_thread.rdp.projection_index++;
         }
         if (!set) {
-            new_matrix = multiply_matrix4x4f32(new_matrix,
-                                               plugin.rdp.projection[plugin.rdp.projection_index]);
+            new_matrix = multiply_matrix4x4f32(
+                    new_matrix,
+                    plugin_thread.rdp.projection[plugin_thread.rdp.projection_index]);
 #if 0
             printf("set projection post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
                    vgetq_lane_f32(new_matrix.m[0], 0),
@@ -315,16 +316,17 @@ int32_t op_set_matrix(display_item *item) {
                    vgetq_lane_f32(new_matrix.m[3], 3));
 #endif
         }
-        plugin.rdp.projection[plugin.rdp.projection_index] = new_matrix;
+        plugin_thread.rdp.projection[plugin_thread.rdp.projection_index] = new_matrix;
     } else {
-        if (plugin.rdp.modelview_index < 15 && push) {
-            plugin.rdp.modelview[plugin.rdp.modelview_index + 1] =
-                plugin.rdp.modelview[plugin.rdp.modelview_index];
-            plugin.rdp.modelview_index++;
+        if (plugin_thread.rdp.modelview_index < 15 && push) {
+            plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index + 1] =
+                plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index];
+            plugin_thread.rdp.modelview_index++;
         }
         if (!set) {
-            new_matrix = multiply_matrix4x4f32(new_matrix,
-                                               plugin.rdp.modelview[plugin.rdp.modelview_index]);
+            new_matrix = multiply_matrix4x4f32(
+                    new_matrix,
+                    plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index]);
 #if 0
             printf("set modelview post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
                    vgetq_lane_f32(new_matrix.m[0], 0),
@@ -345,7 +347,7 @@ int32_t op_set_matrix(display_item *item) {
                    vgetq_lane_f32(new_matrix.m[3], 3));
 #endif
         }
-        plugin.rdp.modelview[plugin.rdp.modelview_index] = new_matrix;
+        plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index] = new_matrix;
     }
 
     return 0;
@@ -358,7 +360,7 @@ int32_t op_vertex(display_item *item) {
     printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
     for (uint8_t i = 0; i < count; i++) {
         struct rdp_vertex *rdp_vertex = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
-        vertex *vertex = &plugin.rdp.vertices[i];
+        vertex *vertex = &plugin_thread.rdp.vertices[i];
 
         int16x4_t position = vdup_n_s16(0);
         position = vset_lane_s16(rdp_vertex->x, position, 0);
@@ -371,7 +373,7 @@ int32_t op_vertex(display_item *item) {
         vertex->s = rdp_vertex->s;
         vertex->rgba = rdp_vertex->rgba;
 
-        transform_and_light_vertex(&plugin.rdp.vertices[i]);
+        transform_and_light_vertex(&plugin_thread.rdp.vertices[i]);
     }
     return 0;
 }
@@ -398,15 +400,15 @@ int32_t op_draw_triangle(display_item *item) {
 int32_t op_pop_matrix(display_item *item) {
     bool projection = item->arg32 & 1;
     if (projection) {
-        if (plugin.rdp.projection_index > 0)
-            plugin.rdp.projection_index--;
+        if (plugin_thread.rdp.projection_index > 0)
+            plugin_thread.rdp.projection_index--;
     } else {
-        if (plugin.rdp.modelview_index > 0)
-            plugin.rdp.modelview_index--;
+        if (plugin_thread.rdp.modelview_index > 0)
+            plugin_thread.rdp.modelview_index--;
     }
     printf("pop matrix(%s) = %d\n",
            projection ? "PROJECTION" : "MODELVIEW",
-           projection ? plugin.rdp.projection_index : plugin.rdp.modelview_index);
+           projection ? plugin_thread.rdp.projection_index : plugin_thread.rdp.modelview_index);
     return 0;
 }
 
@@ -418,7 +420,7 @@ int32_t op_move_word(display_item *item) {
         {
             uint32_t segment = (item->arg16 >> 10) & 0xf;
             uint32_t base = item->arg32 & 0x00ffffff;
-            plugin.rdp.segments[segment] = base;
+            plugin_thread.rdp.segments[segment] = base;
             // printf("segment[%d] = %08x\n", segment, base);
             break;
         }

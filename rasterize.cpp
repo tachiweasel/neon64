@@ -15,66 +15,12 @@
 #include <SDL2/SDL.h>
 #endif
 
-#define FRAMEBUFFER_WIDTH       320
-#define FRAMEBUFFER_HEIGHT      240
-#define WORKER_THREAD_COUNT     1
 #define PIXEL_STEP_SIZE         8
-#define TEXTURE_WIDTH           64
-#define TEXTURE_HEIGHT          64
 #define TRIANGLE_COUNT          500000
-
-#define SUBFRAMEBUFFER_HEIGHT   ((FRAMEBUFFER_HEIGHT) / (WORKER_THREAD_COUNT))
-
-struct vec2i16 {
-    int16_t x;
-    int16_t y;
-};
-
-struct vec4u8 {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t a;
-};
-
-struct vec4i16 {
-    int16_t x;
-    int16_t y;
-    int16_t z;
-    int16_t w;
-};
-
-struct triangle {
-    vec4i16 v0;
-    vec4i16 v1;
-    vec4i16 v2;
-
-    vec4u8 c0;
-    vec4u8 c1;
-    vec4u8 c2;
-
-    vec2i16 t0;
-    vec2i16 t1;
-    vec2i16 t2;
-};
-
-struct framebuffer {
-    uint16_t pixels[FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1)];
-};
 
 struct display_list {
     triangle *triangles;
     uint32_t triangles_len;
-};
-
-struct texture {
-    uint16_t pixels[TEXTURE_WIDTH * TEXTURE_HEIGHT];
-};
-
-struct render_state {
-    framebuffer *framebuffer;
-    int16_t *depth;
-    texture *texture;
 };
 
 struct worker_thread_info {
@@ -490,6 +436,21 @@ void *worker_thread(void *cookie) {
     return NULL;
 }
 
+void init_render_state(render_state *render_state) {
+    render_state->framebuffer = new framebuffer;
+    memset(render_state->framebuffer->pixels,
+           '\0',
+           FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1));
+
+    render_state->depth = new int16_t[FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1)];
+    for (int j = 0; j < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); j++)
+        render_state->depth[j] = 0x7fff;
+
+    render_state->texture = new texture;
+    for (int j = 0; j < TEXTURE_WIDTH * TEXTURE_HEIGHT; j++)
+        render_state->texture->pixels[j] = rand();
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: rasterize SCENE\n");
@@ -545,18 +506,7 @@ int main(int argc, char **argv) {
     worker_thread_info worker_thread_info[WORKER_THREAD_COUNT];
     for (int16_t i = 0; i < WORKER_THREAD_COUNT; i++) {
         render_state *render_state = new struct render_state;
-        render_state->framebuffer = new framebuffer;
-        memset(render_state->framebuffer->pixels,
-               '\0',
-               FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1));
-
-        render_state->depth = new int16_t[FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1)];
-        for (int j = 0; j < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); j++)
-            render_state->depth[j] = 0x7fff;
-
-        render_state->texture = new texture;
-        for (int j = 0; j < TEXTURE_WIDTH * TEXTURE_HEIGHT; j++)
-            render_state->texture->pixels[j] = rand();
+        init_render_state(render_state);
 
         worker_thread_info[i].id = i;
         pthread_cond_init(&worker_thread_info[i].finished_cond, NULL);

@@ -3,6 +3,7 @@
 #ifndef RDP_H
 #define RDP_H
 
+#include "rasterize.h"
 #include "simd.h"
 #include <stdint.h>
 
@@ -46,10 +47,16 @@ struct rdp {
 struct plugin {
     memory memory;
     registers registers;
+};
+
+struct plugin_thread {
     rdp rdp;
+    render_state render_state;
 };
 
 extern struct plugin plugin;
+
+extern struct plugin_thread plugin_thread;
 
 inline void send_dp_interrupt() {
     *plugin.registers.mi_intr |= MI_INTR_DP;
