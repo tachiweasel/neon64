@@ -22,11 +22,27 @@ struct registers {
     uint32_t *mi_intr;
 };
 
+struct vertex {
+    int16x4_t position;
+
+    int16_t t;
+    int16_t s;
+
+    uint8_t a;
+    uint8_t b;
+    uint8_t g;
+    uint8_t r;
+};
+
 struct rdp {
     matrix4x4f32 projection[16];
     uint32_t projection_index;
+
     matrix4x4f32 modelview[16];
     uint32_t modelview_index;
+
+    vertex vertices[128];
+
     uint32_t segments[16];
 };
 

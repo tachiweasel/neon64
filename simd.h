@@ -35,6 +35,16 @@ inline int32x4_t vdupq_n_s32(int32_t value) {
     return result;
 }
 
+inline int16x4_t vdup_n_s16(int16_t value) {
+    int16x4_t result = {
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
 inline int16x8_t vdupq_n_s16(int16_t value) {
     int16x8_t result = {
         value,
@@ -85,6 +95,10 @@ inline float vgetq_lane_f32(float32x4_t vector, uint8_t index) {
     return vector[index];
 }
 
+inline int16_t vget_lane_s16(int16x4_t vector, uint8_t index) {
+    return vector[index];
+}
+
 inline int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
     return vector[index];
 }
@@ -94,6 +108,11 @@ inline uint16_t vgetq_lane_u16(uint16x8_t vector, uint8_t index) {
 }
 
 inline float32x4_t vsetq_lane_f32(float value, float32x4_t vector, int8_t index) {
+    vector[index] = value;
+    return vector;
+}
+
+inline int16x4_t vset_lane_s16(int16_t value, int16x4_t vector, int8_t index) {
     vector[index] = value;
     return vector;
 }

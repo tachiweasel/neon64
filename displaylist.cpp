@@ -34,6 +34,7 @@ matrix4x4f32 load_matrix(uint32_t address) {
     return result;
 }
 
+// TODO(tachiweasel): SIMD-ify.
 matrix4x4f32 multiply_matrix4x4f32(matrix4x4f32 a, matrix4x4f32 b) {
     matrix4x4f32 result;
 
@@ -140,6 +141,43 @@ matrix4x4f32 multiply_matrix4x4f32(matrix4x4f32 a, matrix4x4f32 b) {
     return result;
 }
 
+int16x4_t multiply_matrix4x4f32_int16x4(matrix4x4f32 *a, int16x4_t x) {
+    int16x4_t ax = vdup_n_s16(0);
+    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[0], 0) * (float)vget_lane_s16(x, 0) +
+                                 vgetq_lane_f32(a->m[0], 1) * (float)vget_lane_s16(x, 1) +
+                                 vgetq_lane_f32(a->m[0], 2) * (float)vget_lane_s16(x, 2) +
+                                 vgetq_lane_f32(a->m[0], 3) * (float)vget_lane_s16(x, 3)),
+                        ax,
+                        0);
+    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[1], 0) * (float)vget_lane_s16(x, 0) +
+                                 vgetq_lane_f32(a->m[1], 1) * (float)vget_lane_s16(x, 1) +
+                                 vgetq_lane_f32(a->m[1], 2) * (float)vget_lane_s16(x, 2) +
+                                 vgetq_lane_f32(a->m[1], 3) * (float)vget_lane_s16(x, 3)),
+                        ax,
+                        1);
+    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[2], 0) * (float)vget_lane_s16(x, 0) +
+                                 vgetq_lane_f32(a->m[2], 1) * (float)vget_lane_s16(x, 1) +
+                                 vgetq_lane_f32(a->m[2], 2) * (float)vget_lane_s16(x, 2) +
+                                 vgetq_lane_f32(a->m[2], 3) * (float)vget_lane_s16(x, 3)),
+                        ax,
+                        2);
+    ax = vset_lane_s16((int16_t)(vgetq_lane_f32(a->m[3], 0) * (float)vget_lane_s16(x, 0) +
+                                 vgetq_lane_f32(a->m[3], 1) * (float)vget_lane_s16(x, 1) +
+                                 vgetq_lane_f32(a->m[3], 2) * (float)vget_lane_s16(x, 2) +
+                                 vgetq_lane_f32(a->m[3], 3) * (float)vget_lane_s16(x, 3)),
+                        ax,
+                        3);
+    return ax;
+}
+
+void transform_and_light_vertex(vertex *vertex) {
+    matrix4x4f32 *projection = &plugin.rdp.projection[plugin.rdp.projection_index];
+    matrix4x4f32 *modelview = &plugin.rdp.modelview[plugin.rdp.modelview_index];
+    int16x4_t position = multiply_matrix4x4f32_int16x4(modelview, vertex->position);
+    position = multiply_matrix4x4f32_int16x4(projection, vertex->position);
+    vertex->position = position;
+}
+
 int32_t op_noop(display_item *item) {
     return 0;
 }
@@ -176,7 +214,14 @@ int32_t op_set_matrix(display_item *item) {
 }
 
 int32_t op_vertex(display_item *item) {
-    printf("vertex\n");
+    uint8_t count = item->arg8 >> 4;
+    uint8_t start_index = item->arg8 & 0xf;
+    uint32_t addr = segment_address(item->arg32);
+    printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
+    for (uint8_t i = 0; i < count; i++) {
+        plugin.rdp.vertices[i] = *((vertex *)(&plugin.memory.rdram[addr]));
+        transform_and_light_vertex(&plugin.rdp.vertices[i]);
+    }
     return 0;
 }
 
