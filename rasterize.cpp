@@ -217,10 +217,6 @@ int32x4_t vaddq_s32(int32x4_t a, int32x4_t b) {
     return a + b;
 }
 
-int32x4_t vaddq_n_s16(int16x8_t a, int16_t b) {
-    return a + vdupq_n_s16(b);
-}
-
 float32x4_t vmulq_f32(float32x4_t a, float32x4_t b) {
     return a * b;
 }
@@ -575,7 +571,7 @@ inline void setup_varying(varying *varying,
     w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 8);
     w1_row = vcombine_s16(vmovn_s32(w1_row_low), vmovn_s32(w1_row_high));
     w2_row = vcombine_s16(vmovn_s32(w2_row_low), vmovn_s32(w2_row_high));
-    varying->row = vaddq_n_s16(vaddq_s16(w1_row, w2_row), x0);
+    varying->row = vaddq_s16(vdupq_n_s16(x0), vaddq_s16(w1_row, w2_row));
 
     int32x4_t w1_x_step_low = vmovl_s16(vget_low_s16(w1_x_step));
     int32x4_t w1_x_step_high = vmovl_s16(vget_high_s16(w1_x_step));
