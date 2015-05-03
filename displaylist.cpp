@@ -36,6 +36,11 @@ bool op_pop_matrix(display_item *item) {
     return true;
 }
 
+bool op_move_word(display_item *item) {
+    printf("move word\n");
+    return true;
+}
+
 bool op_end_display_list(display_item *item) {
     printf("end display list\n");
     return false;
@@ -48,6 +53,7 @@ display_op_t OPS[256] = {
     [0x06] = op_call_display_list,
     [0xbf] = op_draw_triangle,
     [0xbd] = op_pop_matrix,
+    [0xbc] = op_move_word,
     [0xb8] = op_end_display_list,
 };
 
