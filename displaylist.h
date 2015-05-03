@@ -32,12 +32,13 @@ struct display_list {
 };
 
 struct display_item {
+    uint16_t arg16;
+    uint8_t arg8;
     uint8_t op;
-    uint8_t arg0;
-    uint16_t arg1;
-    uint32_t w1;
+    uint32_t arg32;
 };
 
+void interpret_display_list(uint32_t addr);
 void process_display_list(display_list *list);
 
 #endif
