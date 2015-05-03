@@ -185,12 +185,40 @@ bool is_zero(int16x8_t vector) {
     return (__int128_t)vector == 0;
 }
 
+int32x4_t vdupq_n_s32(int32_t value) {
+    int32x4_t result = {
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
+int16x8_t vdupq_n_s16(int16_t value) {
+    int16x8_t result = {
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+        value,
+    };
+    return result;
+}
+
 float32x4_t vaddq_f32(float32x4_t a, float32x4_t b) {
     return a + b;
 }
 
 int32x4_t vaddq_s32(int32x4_t a, int32x4_t b) {
     return a + b;
+}
+
+int32x4_t vaddq_n_s16(int16x8_t a, int16_t b) {
+    return a + vdupq_n_s16(b);
 }
 
 float32x4_t vmulq_f32(float32x4_t a, float32x4_t b) {
@@ -241,30 +269,6 @@ uint16x8_t vqsubq_u16(uint16x8_t a, uint16x8_t b) {
 
 float32x4_t vdupq_n_f32(float value) {
     float32x4_t result = {
-        value,
-        value,
-        value,
-        value,
-    };
-    return result;
-}
-
-int32x4_t vdupq_n_s32(int32_t value) {
-    int32x4_t result = {
-        value,
-        value,
-        value,
-        value,
-    };
-    return result;
-}
-
-int16x8_t vdupq_n_s16(int16_t value) {
-    int16x8_t result = {
-        value,
-        value,
-        value,
-        value,
         value,
         value,
         value,
@@ -349,20 +353,20 @@ int16x8_t vcombine_s16(int16x4_t low, int16x4_t high) {
 
 int32x4_t vcvtq_s32_f32(float32x4_t vector) {
     int32x4_t result = {
-        (float)vector[0],
-        (float)vector[1],
-        (float)vector[2],
-        (float)vector[3],
+        (int32_t)vector[0],
+        (int32_t)vector[1],
+        (int32_t)vector[2],
+        (int32_t)vector[3],
     };
     return result;
 }
 
 float32x4_t vcvtq_f32_s32(int32x4_t vector) {
     float32x4_t result = {
-        (int32_t)vector[0],
-        (int32_t)vector[1],
-        (int32_t)vector[2],
-        (int32_t)vector[3],
+        (float)vector[0],
+        (float)vector[1],
+        (float)vector[2],
+        (float)vector[3],
     };
     return result;
 }
@@ -528,11 +532,27 @@ inline int16x8_t setup_triangle_edge(triangle_edge *edge,
 }
 
 inline void normalize_triangle_edge(triangle_edge *edge, int16x8_t *w, int16_t wsum) {
-    for (int i = 0; i < 8; i++) {
-        (*w)[i] = (int16_t)(((int32_t)(*w)[i] * 256) / wsum);
-        edge->x_step[i] = (int16_t)(((int32_t)edge->x_step[i] * 256) / wsum);
-        edge->y_step[i] = (int16_t)(((int32_t)edge->y_step[i] * 256) / wsum);
-    }
+    float32x4_t wrecip_sumf = vrecpeq_f32(vdupq_n_f32(wsum));
+
+    float32x4_t wlowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(*w)));
+    float32x4_t whighf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(*w)));
+    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 256.0), wrecip_sumf);
+    whighf = vmulq_f32(vmulq_n_f32(whighf, 256.0), wrecip_sumf);
+    *w = vcombine_s16(vmovn_s32(vcvtq_s32_f32(wlowf)), vmovn_s32(vcvtq_s32_f32(whighf)));
+
+    float32x4_t x_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->x_step)));
+    float32x4_t x_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->x_step)));
+    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 256.0), wrecip_sumf);
+    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 256.0), wrecip_sumf);
+    edge->x_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(x_step_lowf)),
+                                vmovn_s32(vcvtq_s32_f32(x_step_highf)));
+
+    float32x4_t y_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->y_step)));
+    float32x4_t y_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->y_step)));
+    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 256.0), wrecip_sumf);
+    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 256.0), wrecip_sumf);
+    edge->y_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(y_step_lowf)),
+                                vmovn_s32(vcvtq_s32_f32(y_step_highf)));
 }
 
 inline void setup_varying(varying *varying,
@@ -545,14 +565,41 @@ inline void setup_varying(varying *varying,
                           int16x8_t w2_x_step,
                           int16x8_t w1_y_step,
                           int16x8_t w2_y_step) {
-    for (int i = 0; i < 8; i++) {
-        varying->row[i] = x0 + ((int32_t)w1_row[i] * (x1 - x0)) / 256 +
-            ((int32_t)w2_row[i] * (x2 - x0)) / 256;
-        varying->x_step[i] = ((int32_t)w1_x_step[i] * (x1 - x0)) / 256 +
-            ((int32_t)w2_x_step[i] * (x2 - x0)) / 256;
-        varying->y_step[i] = ((int32_t)w1_y_step[i] * (x1 - x0)) / 256 +
-            ((int32_t)w2_y_step[i] * (x2 - x0)) / 256;
-    }
+    int32x4_t w1_row_low = vmovl_s16(vget_low_s16(w1_row));
+    int32x4_t w1_row_high = vmovl_s16(vget_high_s16(w1_row));
+    int32x4_t w2_row_low = vmovl_s16(vget_low_s16(w2_row));
+    int32x4_t w2_row_high = vmovl_s16(vget_high_s16(w2_row));
+    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 8);
+    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 8);
+    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 8);
+    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 8);
+    w1_row = vcombine_s16(vmovn_s32(w1_row_low), vmovn_s32(w1_row_high));
+    w2_row = vcombine_s16(vmovn_s32(w2_row_low), vmovn_s32(w2_row_high));
+    varying->row = vaddq_n_s16(vaddq_s16(w1_row, w2_row), x0);
+
+    int32x4_t w1_x_step_low = vmovl_s16(vget_low_s16(w1_x_step));
+    int32x4_t w1_x_step_high = vmovl_s16(vget_high_s16(w1_x_step));
+    int32x4_t w2_x_step_low = vmovl_s16(vget_low_s16(w2_x_step));
+    int32x4_t w2_x_step_high = vmovl_s16(vget_high_s16(w2_x_step));
+    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 8);
+    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 8);
+    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 8);
+    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 8);
+    w1_x_step = vcombine_s16(vmovn_s32(w1_x_step_low), vmovn_s32(w1_x_step_high));
+    w2_x_step = vcombine_s16(vmovn_s32(w2_x_step_low), vmovn_s32(w2_x_step_high));
+    varying->x_step = vaddq_s16(w1_x_step, w2_x_step);
+
+    int32x4_t w1_y_step_low = vmovl_s16(vget_low_s16(w1_y_step));
+    int32x4_t w1_y_step_high = vmovl_s16(vget_high_s16(w1_y_step));
+    int32x4_t w2_y_step_low = vmovl_s16(vget_low_s16(w2_y_step));
+    int32x4_t w2_y_step_high = vmovl_s16(vget_high_s16(w2_y_step));
+    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 8);
+    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 8);
+    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 8);
+    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 8);
+    w1_y_step = vcombine_s16(vmovn_s32(w1_y_step_low), vmovn_s32(w1_y_step_high));
+    w2_y_step = vcombine_s16(vmovn_s32(w2_y_step_low), vmovn_s32(w2_y_step_high));
+    varying->y_step = vaddq_s16(w1_y_step, w2_y_step);
 }
 
 void draw_triangle(render_state *render_state, const triangle *t) {
@@ -570,7 +617,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     int16x8_t w1_row = setup_triangle_edge(&e20, v2, v0, &origin);
     int16x8_t w2_row = setup_triangle_edge(&e01, v0, v1, &origin);
 
-    int16_t wsum = w0_row[0] + w1_row[0] + w2_row[0];
+    int16_t wsum = vgetq_lane_s16(w0_row, 0) + vgetq_lane_s16(w1_row, 0) +
+        vgetq_lane_s16(w2_row, 0);
     if (wsum == 0)
         wsum = 1;
 
