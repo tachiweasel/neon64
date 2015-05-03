@@ -20,7 +20,7 @@
 
 #define FRAMEBUFFER_WIDTH       320
 #define FRAMEBUFFER_HEIGHT      240
-#define WORKER_THREAD_COUNT     4
+#define WORKER_THREAD_COUNT     1
 #define PIXEL_STEP_SIZE         8
 #define TEXTURE_WIDTH           64
 #define TEXTURE_HEIGHT          64
