@@ -531,6 +531,8 @@ void draw_pixels(render_state *render_state,
     g = vshlq_n_s16(vshrq_n_s16(g, 2), 5);
     b = vshrq_n_s16(b, 3);
     pixels = vandq_s16(mask, vorrq_s16(vorrq_s16(r, g), b));
+#else
+    pixels = mask;
 #endif
 
 #endif
