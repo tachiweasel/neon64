@@ -62,6 +62,8 @@ int16_t orient2d(const vec4i16 *a, const vec4i16 *b, const vec2i16 *c) {
 struct triangle_edge {
     int16x8_t x_step;
     int16x8_t y_step;
+    int16x8_t normalized_x_step;
+    int16x8_t normalized_y_step;
 };
 
 struct varying {
@@ -241,28 +243,31 @@ inline int16x8_t setup_triangle_edge(triangle_edge *edge,
     return vdupq_n_s16(a) * x + vdupq_n_s16(b) * y + vdupq_n_s16(c);
 }
 
-inline void normalize_triangle_edge(triangle_edge *edge, int16x8_t *w, int16_t wsum) {
+inline int16x8_t normalize_triangle_edge(triangle_edge *edge, int16x8_t w, int16_t wsum) {
     float32x4_t wrecip_sumf = vrecpeq_f32(vdupq_n_f32(wsum));
 
-    float32x4_t wlowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(*w)));
-    float32x4_t whighf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(*w)));
-    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 1024.0), wrecip_sumf);
-    whighf = vmulq_f32(vmulq_n_f32(whighf, 1024.0), wrecip_sumf);
-    *w = vcombine_s16(vmovn_s32(vcvtq_s32_f32(wlowf)), vmovn_s32(vcvtq_s32_f32(whighf)));
+    float32x4_t wlowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w)));
+    float32x4_t whighf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(w)));
+    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 256.0), wrecip_sumf);
+    whighf = vmulq_f32(vmulq_n_f32(whighf, 256.0), wrecip_sumf);
+    int16x8_t normalized_w = vcombine_s16(vmovn_s32(vcvtq_s32_f32(wlowf)),
+                                          vmovn_s32(vcvtq_s32_f32(whighf)));
 
     float32x4_t x_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->x_step)));
     float32x4_t x_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->x_step)));
-    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 1024.0), wrecip_sumf);
-    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 1024.0), wrecip_sumf);
-    edge->x_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(x_step_lowf)),
-                                vmovn_s32(vcvtq_s32_f32(x_step_highf)));
+    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 256.0), wrecip_sumf);
+    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 256.0), wrecip_sumf);
+    edge->normalized_x_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(x_step_lowf)),
+                                           vmovn_s32(vcvtq_s32_f32(x_step_highf)));
 
     float32x4_t y_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->y_step)));
     float32x4_t y_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->y_step)));
-    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 1024.0), wrecip_sumf);
-    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 1024.0), wrecip_sumf);
-    edge->y_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(y_step_lowf)),
-                                vmovn_s32(vcvtq_s32_f32(y_step_highf)));
+    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 256.0), wrecip_sumf);
+    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 256.0), wrecip_sumf);
+    edge->normalized_y_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(y_step_lowf)),
+                                           vmovn_s32(vcvtq_s32_f32(y_step_highf)));
+
+    return normalized_w;
 }
 
 inline void setup_varying(varying *varying,
@@ -279,10 +284,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_row_high = vmovl_s16(vget_high_s16(w1_row));
     int32x4_t w2_row_low = vmovl_s16(vget_low_s16(w2_row));
     int32x4_t w2_row_high = vmovl_s16(vget_high_s16(w2_row));
-    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 10);
-    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 10);
-    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 10);
-    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 10);
+    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 8);
+    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 8);
+    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 8);
+    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 8);
     w1_row = vcombine_s16(vmovn_s32(w1_row_low), vmovn_s32(w1_row_high));
     w2_row = vcombine_s16(vmovn_s32(w2_row_low), vmovn_s32(w2_row_high));
     varying->row = vaddq_s16(vdupq_n_s16(x0), vaddq_s16(w1_row, w2_row));
@@ -291,10 +296,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_x_step_high = vmovl_s16(vget_high_s16(w1_x_step));
     int32x4_t w2_x_step_low = vmovl_s16(vget_low_s16(w2_x_step));
     int32x4_t w2_x_step_high = vmovl_s16(vget_high_s16(w2_x_step));
-    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 10);
-    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 10);
-    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 10);
-    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 10);
+    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 8);
+    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 8);
+    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 8);
+    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 8);
     w1_x_step = vcombine_s16(vmovn_s32(w1_x_step_low), vmovn_s32(w1_x_step_high));
     w2_x_step = vcombine_s16(vmovn_s32(w2_x_step_low), vmovn_s32(w2_x_step_high));
     varying->x_step = vaddq_s16(w1_x_step, w2_x_step);
@@ -303,10 +308,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_y_step_high = vmovl_s16(vget_high_s16(w1_y_step));
     int32x4_t w2_y_step_low = vmovl_s16(vget_low_s16(w2_y_step));
     int32x4_t w2_y_step_high = vmovl_s16(vget_high_s16(w2_y_step));
-    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 10);
-    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 10);
-    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 10);
-    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 10);
+    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 8);
+    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 8);
+    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 8);
+    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 8);
     w1_y_step = vcombine_s16(vmovn_s32(w1_y_step_low), vmovn_s32(w1_y_step_high));
     w2_y_step = vcombine_s16(vmovn_s32(w2_y_step_low), vmovn_s32(w2_y_step_high));
     varying->y_step = vaddq_s16(w1_y_step, w2_y_step);
@@ -332,17 +337,17 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     if (wsum == 0)
         wsum = 1;
 
-    normalize_triangle_edge(&e12, &w0_row, wsum);
-    normalize_triangle_edge(&e20, &w1_row, wsum);
-    normalize_triangle_edge(&e01, &w2_row, wsum);
+    normalize_triangle_edge(&e12, w0_row, wsum);
+    int16x8_t normalized_w1_row = normalize_triangle_edge(&e20, w1_row, wsum);
+    int16x8_t normalized_w2_row = normalize_triangle_edge(&e01, w2_row, wsum);
 
     varying z_varying;
     setup_varying(&z_varying,
                   t->v0.z,
                   t->v1.z,
                   t->v2.z,
-                  w1_row,
-                  w2_row,
+                  normalized_w1_row,
+                  normalized_w2_row,
                   e20.x_step,
                   e01.x_step,
                   e20.y_step,
@@ -353,8 +358,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   t->c0.r,
                   t->c1.r,
                   t->c2.r,
-                  w1_row,
-                  w2_row,
+                  normalized_w1_row,
+                  normalized_w2_row,
                   e20.x_step,
                   e01.x_step,
                   e20.y_step,
@@ -365,8 +370,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   t->c0.g,
                   t->c1.g,
                   t->c2.g,
-                  w1_row,
-                  w2_row,
+                  normalized_w1_row,
+                  normalized_w2_row,
                   e20.x_step,
                   e01.x_step,
                   e20.y_step,
@@ -377,8 +382,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   t->c0.b,
                   t->c1.b,
                   t->c2.b,
-                  w1_row,
-                  w2_row,
+                  normalized_w1_row,
+                  normalized_w2_row,
                   e20.x_step,
                   e01.x_step,
                   e20.y_step,

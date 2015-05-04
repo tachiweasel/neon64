@@ -81,15 +81,23 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
 extern "C" void MoveScreen(int xpos, int ypos) {}
 
 extern "C" void ProcessDList() {
+    srand(1);
+
     process_display_list((display_list *)&plugin.memory.dmem[0x0fc0]);
 
     SDL_UpdateTexture(texture,
                       NULL,
-                      plugin_thread->render_state->framebuffer->pixels,
+                      plugin_thread.render_state.framebuffer->pixels,
                       FRAMEBUFFER_WIDTH * sizeof(uint16_t));
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
+
+    memset(plugin_thread.render_state.framebuffer->pixels,
+           '\0',
+           sizeof(uint16_t) * FRAMEBUFFER_WIDTH * SUBFRAMEBUFFER_HEIGHT);
+    for (int i = 0; i < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); i++)
+        plugin_thread.render_state.depth[i] = 0x7fff;
 
     send_dp_interrupt();
     send_sp_interrupt();

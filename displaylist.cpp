@@ -236,6 +236,7 @@ void transform_and_light_vertex(vertex *vertex) {
 
     position = vsetq_lane_f32(vgetq_lane_f32(position, 0) * (FRAMEBUFFER_WIDTH / 2), position, 0);
     position = vsetq_lane_f32(vgetq_lane_f32(position, 1) * (FRAMEBUFFER_HEIGHT / 2), position, 1);
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 2) * 2000.0, position, 2);
 
 #if 0
     printf("%f,%f,%f,%f\n",
@@ -246,6 +247,26 @@ void transform_and_light_vertex(vertex *vertex) {
 #endif
 
     vertex->position = vmovn_s32(vcvtq_s32_f32(position));
+}
+
+vec4i16 transformed_vertex_position(vertex *vertex) {
+    vec4i16 result = {
+        .x = vget_lane_s16(vertex->position, 0),
+        .y = vget_lane_s16(vertex->position, 1),
+        .z = vget_lane_s16(vertex->position, 2),
+        .w = vget_lane_s16(vertex->position, 3),
+    };
+    return result;
+}
+
+vec4u8 transformed_vertex_color(vertex *vertex) {
+    vec4u8 result = {
+        .r = vertex->rgba >> 24,
+        .g = vertex->rgba >> 16,
+        .b = vertex->rgba >> 8,
+        .a = vertex->rgba,
+    };
+    return result;
 }
 
 int32_t op_noop(display_item *item) {
@@ -354,12 +375,13 @@ int32_t op_set_matrix(display_item *item) {
 }
 
 int32_t op_vertex(display_item *item) {
-    uint8_t count = item->arg8 >> 4;
+    uint8_t count = (item->arg8 >> 4) + 1;
     uint8_t start_index = item->arg8 & 0xf;
     uint32_t addr = segment_address(item->arg32);
     printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
+    struct rdp_vertex *base = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
     for (uint8_t i = 0; i < count; i++) {
-        struct rdp_vertex *rdp_vertex = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
+        struct rdp_vertex *rdp_vertex = &base[i];
         vertex *vertex = &plugin_thread.rdp.vertices[i];
 
         int16x4_t position = vdup_n_s16(0);
@@ -393,7 +415,28 @@ int32_t op_call_display_list(display_item *item) {
 }
 
 int32_t op_draw_triangle(display_item *item) {
-    printf("draw triangle\n");
+    uint8_t indices[3] = {
+        (item->arg32 >> 16) / 10,
+        (item->arg32 >> 8) / 10,
+        (item->arg32 >> 0) / 10
+    };
+    printf("draw triangle(%d,%d,%d)\n", (int)indices[0], (int)indices[1], (int)indices[2]);
+    vertex transformed_vertices[3];
+    for (int i = 0; i < 3; i++)
+        transformed_vertices[i] = plugin_thread.rdp.vertices[indices[i]];
+    triangle t = {
+        .v0 = transformed_vertex_position(&transformed_vertices[0]),
+        .v1 = transformed_vertex_position(&transformed_vertices[1]),
+        .v2 = transformed_vertex_position(&transformed_vertices[2]),
+        .c0 = transformed_vertex_color(&transformed_vertices[0]),
+        .c1 = transformed_vertex_color(&transformed_vertices[1]),
+        .c2 = transformed_vertex_color(&transformed_vertices[2]),
+    };
+    printf("drawing triangle vertices %d,%d,%d %d,%d,%d %d,%d,%d\n",
+           t.v0.x, t.v0.y, t.v0.z,
+           t.v1.x, t.v1.y, t.v1.z,
+           t.v2.x, t.v2.y, t.v2.z);
+    draw_triangle(&plugin_thread.render_state, &t);
     return 0;
 }
 
