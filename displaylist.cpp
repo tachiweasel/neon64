@@ -7,7 +7,14 @@
 #include "simd.h"
 #include <stdio.h>
 
+#define MOVE_WORD_MATRIX    0
+#define MOVE_WORD_CLIP      4
 #define MOVE_WORD_SEGMENT   6
+
+#define MOVE_MEM_LIGHT_0    0x86
+#define MOVE_MEM_LIGHT_1    0x88
+#define MOVE_MEM_LIGHT_2    0x8a
+#define MOVE_MEM_MATRIX_1   0x9e
 
 #define DLIST_CALL  0
 #define DLIST_JUMP  1
@@ -255,7 +262,7 @@ void transform_and_light_vertex(vertex *vertex) {
 
     position = vsetq_lane_f32(vgetq_lane_f32(position, 0) * (FRAMEBUFFER_WIDTH / 2), position, 0);
     position = vsetq_lane_f32(vgetq_lane_f32(position, 1) * (FRAMEBUFFER_HEIGHT / 2), position, 1);
-    position = vsetq_lane_f32(vgetq_lane_f32(position, 2) * 2000.0, position, 2);
+    position = vsetq_lane_f32(vgetq_lane_f32(position, 2) * 20.0, position, 2);
 
 #if 0
     printf("vertex: %f,%f,%f,%f\n",
@@ -395,6 +402,21 @@ int32_t op_set_matrix(display_item *item) {
     return 0;
 }
 
+int32_t op_move_mem(display_item *item) {
+    switch (item->arg8) {
+    case MOVE_MEM_LIGHT_0:
+    case MOVE_MEM_LIGHT_1:
+    case MOVE_MEM_LIGHT_2:
+        break;
+    case MOVE_MEM_MATRIX_1:
+        printf("*** move mem matrix 1\n");
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
 int32_t op_vertex(display_item *item) {
     uint8_t count = (item->arg8 >> 4) + 1;
     uint8_t start_index = item->arg8 & 0xf;
@@ -430,7 +452,7 @@ int32_t op_call_display_list(display_item *item) {
     }
 
     int32_t new_pc = addr;
-    int32_t old_pc = (uint32_t)((uintptr_t)&item[1] - (uintptr_t)&plugin.memory.rdram);
+    int32_t old_pc = (uint32_t)((uintptr_t)&item[1] - (uintptr_t)&plugin.memory.rdram[0]);
     //printf("jump display list new_pc=%08x old_pc=%08x\n", new_pc, old_pc);
     return new_pc - old_pc;
 }
@@ -463,6 +485,14 @@ int32_t op_draw_triangle(display_item *item) {
     return 0;
 }
 
+int32_t op_draw_texture_rectangle(display_item *item) {
+    return 16;
+}
+
+int32_t op_draw_flipped_texture_rectangle(display_item *item) {
+    return 16;
+}
+
 int32_t op_pop_matrix(display_item *item) {
     bool projection = item->arg32 & 1;
     if (projection) {
@@ -484,6 +514,16 @@ int32_t op_move_word(display_item *item) {
     uint8_t type = item->arg16 & 0xff;
     //printf("move word(%d) %08x %08x\n", (int)type, ((uint32_t *)item)[0], ((uint32_t *)item)[1]);
     switch (type) {
+    case MOVE_WORD_MATRIX:
+        {
+            printf("moving matrix word\n");
+            break;
+        }
+    case MOVE_WORD_CLIP:
+        {
+            printf("moving clip word\n");
+            break;
+        }
     case MOVE_WORD_SEGMENT:
         {
             uint32_t segment = (item->arg16 >> 10) & 0xf;
@@ -527,67 +567,82 @@ int32_t op_end_display_list(display_item *item) {
     op_noop, op_noop, op_noop, op_noop  \
 
 display_op_t OPS[256] = {
-    op_noop,                        // 00
-    op_set_matrix,                  // 01
-    op_noop,                        // 02
-    op_noop,                        // 03
-    op_vertex,                      // 04
-    op_noop,                        // 05
-    op_call_display_list,           // 06
-    op_noop,                        // 07
-    op_noop,                        // 08
-    op_noop,                        // 09
-    op_noop,                        // 0a
-    op_noop,                        // 0b
-    op_noop,                        // 0c
-    op_noop,                        // 0d
-    op_noop,                        // 0e
-    op_noop,                        // 0f
-    SIXTEEN_NO_OPS,                 // 10
-    SIXTEEN_NO_OPS,                 // 20
-    SIXTEEN_NO_OPS,                 // 30
-    SIXTEEN_NO_OPS,                 // 40
-    SIXTEEN_NO_OPS,                 // 50
-    SIXTEEN_NO_OPS,                 // 60
-    SIXTEEN_NO_OPS,                 // 70
-    SIXTEEN_NO_OPS,                 // 80
-    SIXTEEN_NO_OPS,                 // 90
-    SIXTEEN_NO_OPS,                 // a0
-    op_noop,                        // b0
-    op_noop,                        // b1
-    op_noop,                        // b2
-    op_noop,                        // b3
-    op_noop,                        // b4
-    op_noop,                        // b5
-    op_noop,                        // b6
-    op_noop,                        // b7
-    op_end_display_list,            // b8
-    op_noop,                        // b9
-    op_noop,                        // ba
-    op_noop,                        // bb
-    op_move_word,                   // bc
-    op_pop_matrix,                  // bd
-    op_noop,                        // be
-    op_draw_triangle,               // bf
-    SIXTEEN_NO_OPS,                 // c0
-    SIXTEEN_NO_OPS,                 // d0
-    SIXTEEN_NO_OPS,                 // e0
-    op_noop,                        // f0
-    op_noop,                        // f1
-    op_noop,                        // f2
-    op_noop,                        // f3
-    op_noop,                        // f4
-    op_noop,                        // f5
-    op_noop,                        // f6
-    op_set_fill_color,              // f7
-    op_noop,                        // f8
-    op_set_blend_color,             // f9
-    op_set_prim_color,              // fa
-    op_set_env_color,               // fb
-    op_noop,                        // fc
-    op_noop,                        // fd
-    op_noop,                        // fe
-    op_noop,                        // ff
+    op_noop,                            // 00
+    op_set_matrix,                      // 01
+    op_noop,                            // 02
+    op_move_mem,                        // 03
+    op_vertex,                          // 04
+    op_noop,                            // 05
+    op_call_display_list,               // 06
+    op_noop,                            // 07
+    op_noop,                            // 08
+    op_noop,                            // 09
+    op_noop,                            // 0a
+    op_noop,                            // 0b
+    op_noop,                            // 0c
+    op_noop,                            // 0d
+    op_noop,                            // 0e
+    op_noop,                            // 0f
+    SIXTEEN_NO_OPS,                     // 10
+    SIXTEEN_NO_OPS,                     // 20
+    SIXTEEN_NO_OPS,                     // 30
+    SIXTEEN_NO_OPS,                     // 40
+    SIXTEEN_NO_OPS,                     // 50
+    SIXTEEN_NO_OPS,                     // 60
+    SIXTEEN_NO_OPS,                     // 70
+    SIXTEEN_NO_OPS,                     // 80
+    SIXTEEN_NO_OPS,                     // 90
+    SIXTEEN_NO_OPS,                     // a0
+    op_noop,                            // b0
+    op_noop,                            // b1
+    op_noop,                            // b2
+    op_noop,                            // b3
+    op_noop,                            // b4
+    op_noop,                            // b5
+    op_noop,                            // b6
+    op_noop,                            // b7
+    op_end_display_list,                // b8
+    op_noop,                            // b9
+    op_noop,                            // ba
+    op_noop,                            // bb
+    op_move_word,                       // bc
+    op_pop_matrix,                      // bd
+    op_noop,                            // be
+    op_draw_triangle,                   // bf
+    SIXTEEN_NO_OPS,                     // c0
+    SIXTEEN_NO_OPS,                     // d0
+    op_noop,                            // e0
+    op_noop,                            // e1
+    op_noop,                            // e2
+    op_noop,                            // e3
+    op_draw_texture_rectangle,          // e4
+    op_draw_flipped_texture_rectangle,  // e5
+    op_noop,                            // e6
+    op_noop,                            // e7
+    op_noop,                            // e8
+    op_noop,                            // e9
+    op_noop,                            // ea
+    op_noop,                            // eb
+    op_noop,                            // ec
+    op_noop,                            // ed
+    op_noop,                            // ee
+    op_noop,                            // ef
+    op_noop,                            // f0
+    op_noop,                            // f1
+    op_noop,                            // f2
+    op_noop,                            // f3
+    op_noop,                            // f4
+    op_noop,                            // f5
+    op_noop,                            // f6
+    op_set_fill_color,                  // f7
+    op_noop,                            // f8
+    op_set_blend_color,                 // f9
+    op_set_prim_color,                  // fa
+    op_set_env_color,                   // fb
+    op_noop,                            // fc
+    op_noop,                            // fd
+    op_noop,                            // fe
+    op_noop,                            // ff
 };
 
 void interpret_display_list(uint32_t pc) {
@@ -604,6 +659,7 @@ void interpret_display_list(uint32_t pc) {
             if (displacement == -1)
                 break;
             pc += displacement;
+            //printf("new pc=%08x\n", pc);
         }
     }
 }

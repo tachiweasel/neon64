@@ -239,18 +239,23 @@ inline int16x8_t setup_triangle_edge(triangle_edge *edge,
                                      const vec4i16 *v0,
                                      const vec4i16 *v1,
                                      const vec2i16 *origin) {
-    int16_t a = v0->y - v1->y;
-    int16_t b = v1->x - v0->x;
-    int16_t c = v0->x * v1->y - v0->y * v1->x;
+    int32_t a = v0->y - v1->y;
+    int32_t b = v1->x - v0->x;
+    int32_t c = (int32_t)v0->x * (int32_t)v1->y - (int32_t)v0->y * (int32_t)v1->x;
 
-    edge->x_step = vdupq_n_s16(a * PIXEL_STEP_SIZE);
-    edge->y_step = vdupq_n_s16(b * WORKER_THREAD_COUNT);
+#if 0
+    if (c > 0x7fff || c < -0x7fff)
+        printf("*** warning, overflow!\n");
+#endif
+
+    edge->x_step = vdupq_n_s16((int16_t)a * PIXEL_STEP_SIZE);
+    edge->y_step = vdupq_n_s16((int16_t)b * WORKER_THREAD_COUNT);
 
     int16x8_t x = vdupq_n_s16(origin->x);
     int16x8_t addend = { 0, 1, 2, 3, 4, 5, 6, 7 };
     x += addend;
     int16x8_t y = vdupq_n_s16(origin->y);
-    return vdupq_n_s16(a) * x + vdupq_n_s16(b) * y + vdupq_n_s16(c);
+    return vdupq_n_s16((int16_t)a) * x + vdupq_n_s16((int16_t)b) * y + vdupq_n_s16((int16_t)c);
 }
 
 inline int16x8_t normalize_triangle_edge(triangle_edge *edge, int16x8_t w, int16_t wsum) {
@@ -332,7 +337,9 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     int16_t min_x = min3i16(v0->x, v1->x, v2->x), min_y = min3i16(v0->y, v1->y, v2->y);
     int16_t max_x = max3i16(v0->x, v1->x, v2->x), max_y = max3i16(v0->y, v1->y, v2->y);
 
+#if 0
     min_y = (min_y & ~(WORKER_THREAD_COUNT - 1)) + (min_y > 0 ? -1 : 0) - render_state->worker_id;
+#endif
 
     min_x = maxi16(min_x, -FRAMEBUFFER_WIDTH / 2) & ~7;
     min_y = maxi16(min_y, -FRAMEBUFFER_HEIGHT / 2);
@@ -341,6 +348,16 @@ void draw_triangle(render_state *render_state, const triangle *t) {
 
     if (v0->z == 0 && v1->z == 0 && v2->z == 0)
         return;
+#if 0
+    if (v0->x < -500.0 || v1->x < -500.0 || v2->x < -500.0)
+        return;
+    if (v0->x > 500.0 || v1->x > 500.0 || v2->x > 500.0)
+        return;
+    if (v0->y < -500.0 || v1->y < -500.0 || v2->y < -500.0)
+        return;
+    if (v0->y > 500.0 || v1->y > 500.0 || v2->y > 500.0)
+        return;
+#endif
 
     triangle_edge e01, e12, e20;
     vec2i16 origin = { min_x, min_y };
