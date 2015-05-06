@@ -10,7 +10,9 @@ typedef float float32x4_t __attribute__((vector_size(16)));
 typedef int16_t int16x4_t __attribute__((vector_size(8)));
 typedef int16_t int16x8_t __attribute__((vector_size(16)));
 typedef int32_t int32x4_t __attribute__((vector_size(16)));
+typedef uint16_t uint16x4_t __attribute__((vector_size(8)));
 typedef uint16_t uint16x8_t __attribute__((vector_size(16)));
+typedef uint32_t uint32x4_t __attribute__((vector_size(16)));
 #endif
 
 #ifdef __arm__
@@ -83,6 +85,10 @@ inline int16x8_t vcgeq_s16(int16x8_t a, int16x8_t b) {
     return a >= b;
 }
 
+inline int32x4_t vcgeq_s32(int32x4_t a, int32x4_t b) {
+    return a >= b;
+}
+
 inline int16x8_t vandq_s16(int16x8_t a, int16x8_t b) {
     return a & b;
 }
@@ -113,6 +119,10 @@ inline int16x8_t vorrq_s16(int16x8_t a, int16x8_t b) {
     return a | b;
 }
 
+inline int32x4_t vorrq_s32(int32x4_t a, int32x4_t b) {
+    return a | b;
+}
+
 inline float vgetq_lane_f32(float32x4_t vector, uint8_t index) {
     return vector[index];
 }
@@ -122,6 +132,10 @@ inline int16_t vget_lane_s16(int16x4_t vector, uint8_t index) {
 }
 
 inline int16_t vgetq_lane_s16(int16x8_t vector, uint8_t index) {
+    return vector[index];
+}
+
+inline int32_t vgetq_lane_s32(int32x4_t vector, uint8_t index) {
     return vector[index];
 }
 
@@ -237,6 +251,20 @@ inline int16x8_t vcombine_s16(int16x4_t low, int16x4_t high) {
     return result;
 }
 
+inline uint16x8_t vcombine_u16(uint16x4_t low, uint16x4_t high) {
+    uint16x8_t result = {
+        low[0],
+        low[1],
+        low[2],
+        low[3],
+        high[0],
+        high[1],
+        high[2],
+        high[3],
+    };
+    return result;
+}
+
 inline int32x4_t vcvtq_s32_f32(float32x4_t vector) {
     int32x4_t result = {
         (int32_t)vector[0],
@@ -263,6 +291,16 @@ inline int16x4_t vmovn_s32(int32x4_t vector) {
         (int16_t)vector[1],
         (int16_t)vector[2],
         (int16_t)vector[3],
+    };
+    return result;
+}
+
+inline uint16x4_t vmovn_u32(uint32x4_t vector) {
+    uint16x4_t result = {
+        (uint16_t)vector[0],
+        (uint16_t)vector[1],
+        (uint16_t)vector[2],
+        (uint16_t)vector[3],
     };
     return result;
 }
