@@ -90,7 +90,13 @@ bool is_zero(int16x8_t vector) {
 #define COMPARE_GE_INT16X8(mask, a, b, label) \
     int16x8_t tmp; \
     uint32_t cond; \
-    __asm__("vclt.s16 %q0,%q3,%q4\nvmov.s16 %q1,%q0\nvsli.32 %f1,%e1,#16\nvcmp.f64 %f1,#0\nvmrs APSR_nzcv,FPSCR\nmov %2,#0\nmovgt %2,#1" \
+    __asm__("vclt.s16 %q0,%q3,%q4\n" \
+            "vmov.s16 %q1,%q0\n" \
+            "vsli.32 %f1,%e1,#16\n" \
+            "vcmp.f64 %f1,#0\n" \
+            "vmrs APSR_nzcv,FPSCR\n" \
+            "mov %2,#0\n" \
+            "movgt %2,#1" \
             : "=w" (mask), "=w" (tmp), "=r" (cond) \
             : "w" (a), "w" (b) \
             : "cc"); \
@@ -195,15 +201,19 @@ void draw_pixels(render_state *render_state,
     SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 7);
 #else
 
-#ifdef __arm__
-    uint16x8_t zero = { 0 };
-    __asm__("vceq.s16 %q0,%q1,%q2" : "=w" (pixels) : "w" (mask), "w" (zero));
-    mask = ~pixels;
-#else
-    mask = ~(mask == vdupq_n_u16(0));
-#endif
+    mask = vmvnq_s16(vceqq_s16(mask, vdupq_n_u16(0)));
 
 #ifdef COLORING
+    // FIXME(tachiweasel): Maybe remove the `vandq_n_s16` below if we get better accuracy.
+    r = vandq_s16(r, vdupq_n_s16(0xff));
+    g = vandq_s16(g, vdupq_n_s16(0xff));
+    b = vandq_s16(b, vdupq_n_s16(0xff));
+#if 0
+    printf("r=%d g=%d b=%d\n",
+           (int)vgetq_lane_s16(r, 0),
+           (int)vgetq_lane_s16(g, 0),
+           (int)vgetq_lane_s16(b, 0));
+#endif
     r = vshlq_n_s16(vshrq_n_s16(r, 3), 11);
     g = vshlq_n_s16(vshrq_n_s16(g, 2), 5);
     b = vshrq_n_s16(b, 3);
@@ -326,6 +336,9 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     max_x = mini16(max_x, FRAMEBUFFER_WIDTH / 2 - 1);
     max_y = mini16(max_y, FRAMEBUFFER_HEIGHT / 2 - 1);
 
+    if (v0->z == 0 && v1->z == 0 && v2->z == 0)
+        return;
+
     triangle_edge e01, e12, e20;
     vec2i16 origin = { min_x, min_y };
     int16x8_t w0_row = setup_triangle_edge(&e12, v1, v2, &origin);
@@ -352,6 +365,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   e01.x_step,
                   e20.y_step,
                   e01.y_step);
+    //printf("z varying step=(%d,%d)\n", (int)z_varying.x_step[0], (int)z_varying.y_step[0]);
 
     varying r_varying;
     setup_varying(&r_varying,
@@ -364,6 +378,14 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   e01.x_step,
                   e20.y_step,
                   e01.y_step);
+#if 0
+    printf("r varying c0.r=%d c1.r=%d c2.r=%d step=(%d,%d)\n",
+           (int)t->c0.r,
+           (int)t->c1.r,
+           (int)t->c2.r,
+           (int)vgetq_lane_s16(r_varying.x_step, 0),
+           (int)vgetq_lane_s16(r_varying.y_step, 0));
+#endif
 
     varying g_varying;
     setup_varying(&g_varying,
@@ -389,6 +411,16 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   e20.y_step,
                   e01.y_step);
 
+    r_varying.row = vdupq_n_s16(t->c0.r);
+    g_varying.row = vdupq_n_s16(t->c0.g);
+    b_varying.row = vdupq_n_s16(t->c0.b);
+    r_varying.x_step = vdupq_n_s16(0);
+    r_varying.y_step = vdupq_n_s16(0);
+    g_varying.x_step = vdupq_n_s16(0);
+    g_varying.y_step = vdupq_n_s16(0);
+    b_varying.x_step = vdupq_n_s16(0);
+    b_varying.y_step = vdupq_n_s16(0);
+
     int16x8_t zero = vdupq_n_s16(0);
 
     for (int16_t y = min_y; y <= max_y; y += WORKER_THREAD_COUNT) {
@@ -397,9 +429,31 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         int16x8_t r = r_varying.row, g = g_varying.row, b = b_varying.row;
         for (int16_t x = min_x; x <= max_x; x += PIXEL_STEP_SIZE) {
             vec2i16 p = { x, y };
-            uint16x8_t mask;
-            COMPARE_GE_INT16X8(mask, w0 | w1 | w2, zero, dont_draw);
-            draw_pixels(render_state, &p, t, z, r, g, b, mask);
+            uint16x8_t mask = vcgeq_s16(vorrq_s16(vorrq_s16(w0, w1), w2), zero);
+
+            bool draw = false;
+
+#define TEST(i) \
+    do { \
+        uint16_t hit = vgetq_lane_u16(mask, i); \
+        if (hit) { \
+            draw = true; \
+        } \
+    } while(0)
+
+            TEST(0);
+            TEST(1);
+            TEST(2);
+            TEST(3);
+            TEST(4);
+            TEST(5);
+            TEST(6);
+            TEST(7);
+
+            //COMPARE_GE_INT16X8(mask, w0 | w1 | w2, zero, dont_draw);
+
+            if (draw)
+                draw_pixels(render_state, &p, t, z, r, g, b, mask);
 
 dont_draw:
             w0 += e12.x_step;
@@ -441,11 +495,11 @@ void *worker_thread(void *cookie) {
     return NULL;
 }
 
-void init_render_state(render_state *render_state) {
-    render_state->framebuffer = new framebuffer;
+void init_render_state(render_state *render_state, framebuffer *framebuffer) {
+    render_state->framebuffer = framebuffer;
     memset(render_state->framebuffer->pixels,
            '\0',
-           FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1));
+           sizeof(uint16_t) * FRAMEBUFFER_WIDTH * SUBFRAMEBUFFER_HEIGHT);
 
     render_state->depth = new int16_t[FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1)];
     for (int j = 0; j < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); j++)
@@ -511,7 +565,7 @@ int main(int argc, char **argv) {
     worker_thread_info worker_thread_info[WORKER_THREAD_COUNT];
     for (int16_t i = 0; i < WORKER_THREAD_COUNT; i++) {
         render_state *render_state = new struct render_state;
-        init_render_state(render_state);
+        init_render_state(render_state, new framebuffer);
 
         worker_thread_info[i].id = i;
         pthread_cond_init(&worker_thread_info[i].finished_cond, NULL);

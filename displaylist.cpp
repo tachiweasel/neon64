@@ -1,6 +1,7 @@
 // neon64/displaylist.cpp
 
 #include "displaylist.h"
+#include "plugin.h"
 #include "rasterize.h"
 #include "rdp.h"
 #include "simd.h"
@@ -10,6 +11,8 @@
 
 #define DLIST_CALL  0
 #define DLIST_JUMP  1
+
+#define RDRAM_SIZE  (4 * 1024 * 1024)
 
 typedef int32_t (*display_op_t)(display_item *item);
 
@@ -30,20 +33,36 @@ uint32_t segment_address(uint32_t address) {
     return plugin_thread.rdp.segments[(address >> 24) & 0xf] + (address & 0x00ffffff);
 }
 
+#define LOAD_MATRIX_ELEMENT(result, i, j) \
+    do { \
+        int high = *((int16_t *)(&plugin.memory.rdram[(address + (i * 8) + (j * 2)) ^ 0x2])); \
+        int low = \
+            *((uint16_t *)(&plugin.memory.rdram[(address + (i * 8) + (j * 2) + 32) ^ 0x2])); \
+        result.m[i] = vsetq_lane_f32((float)((high << 16) | low) * (1.0 / 65536.0), \
+                                     result.m[i], \
+                                     j); \
+    } while(0)
+
 // NB: The address is a flat RDRAM address, not a segmented address.
 // TODO(tachiweasel): SIMD-ify this?
 matrix4x4f32 load_matrix(uint32_t address) {
     matrix4x4f32 result;
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            int high = *((int16_t *)(&plugin.memory.rdram[(address + (i * 8) + (j * 2)) ^ 0x2]));
-            int low =
-                *((uint16_t *)(&plugin.memory.rdram[(address + (i * 8) + (j * 2) + 32) ^ 0x2]));
-            result.m[i] = vsetq_lane_f32((float)((high << 16) | low) * (1.0 / 65536.0),
-                                         result.m[i],
-                                         j);
-        }
-    }
+    LOAD_MATRIX_ELEMENT(result, 0, 0);
+    LOAD_MATRIX_ELEMENT(result, 0, 1);
+    LOAD_MATRIX_ELEMENT(result, 0, 2);
+    LOAD_MATRIX_ELEMENT(result, 0, 3);
+    LOAD_MATRIX_ELEMENT(result, 1, 0);
+    LOAD_MATRIX_ELEMENT(result, 1, 1);
+    LOAD_MATRIX_ELEMENT(result, 1, 2);
+    LOAD_MATRIX_ELEMENT(result, 1, 3);
+    LOAD_MATRIX_ELEMENT(result, 2, 0);
+    LOAD_MATRIX_ELEMENT(result, 2, 1);
+    LOAD_MATRIX_ELEMENT(result, 2, 2);
+    LOAD_MATRIX_ELEMENT(result, 2, 3);
+    LOAD_MATRIX_ELEMENT(result, 3, 0);
+    LOAD_MATRIX_ELEMENT(result, 3, 1);
+    LOAD_MATRIX_ELEMENT(result, 3, 2);
+    LOAD_MATRIX_ELEMENT(result, 3, 3);
     return result;
 }
 
@@ -186,7 +205,7 @@ float32x4_t multiply_matrix4x4f32_float32x4(matrix4x4f32 *a, float32x4_t x) {
 void transform_and_light_vertex(vertex *vertex) {
     matrix4x4f32 *projection = &plugin_thread.rdp.projection[plugin_thread.rdp.projection_index];
     matrix4x4f32 *modelview = &plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index];
-    matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
+    //matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
 #if 0
     printf("matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
            vgetq_lane_f32(tmp.m[0], 0),
@@ -216,8 +235,8 @@ void transform_and_light_vertex(vertex *vertex) {
            vgetq_lane_f32(position, 3));
 #endif
 
-    position = multiply_matrix4x4f32_float32x4(&tmp, position);
-    //position = multiply_matrix4x4f32_float32x4(projection, position);
+    position = multiply_matrix4x4f32_float32x4(modelview, position);
+    position = multiply_matrix4x4f32_float32x4(projection, position);
 
 #if 0
     printf("%f,%f,%f,%f -> ",
@@ -239,7 +258,7 @@ void transform_and_light_vertex(vertex *vertex) {
     position = vsetq_lane_f32(vgetq_lane_f32(position, 2) * 2000.0, position, 2);
 
 #if 0
-    printf("%f,%f,%f,%f\n",
+    printf("vertex: %f,%f,%f,%f\n",
            vgetq_lane_f32(position, 0),
            vgetq_lane_f32(position, 1),
            vgetq_lane_f32(position, 2),
@@ -251,20 +270,20 @@ void transform_and_light_vertex(vertex *vertex) {
 
 vec4i16 transformed_vertex_position(vertex *vertex) {
     vec4i16 result = {
-        .x = vget_lane_s16(vertex->position, 0),
-        .y = vget_lane_s16(vertex->position, 1),
-        .z = vget_lane_s16(vertex->position, 2),
-        .w = vget_lane_s16(vertex->position, 3),
+        vget_lane_s16(vertex->position, 0),
+        vget_lane_s16(vertex->position, 1),
+        vget_lane_s16(vertex->position, 2),
+        vget_lane_s16(vertex->position, 3),
     };
     return result;
 }
 
 vec4u8 transformed_vertex_color(vertex *vertex) {
     vec4u8 result = {
-        .r = vertex->rgba >> 24,
-        .g = vertex->rgba >> 16,
-        .b = vertex->rgba >> 8,
-        .a = vertex->rgba,
+        vertex->rgba >> 24,
+        vertex->rgba >> 16,
+        vertex->rgba >> 8,
+        vertex->rgba,
     };
     return result;
 }
@@ -278,11 +297,13 @@ int32_t op_set_matrix(display_item *item) {
     bool set = (item->arg8 >> 1) & 1;
     bool push = (item->arg8 >> 2) & 1;
     uint32_t addr = segment_address(item->arg32);
+#if 0
     printf("set matrix(%08x, %s, %s, %s)\n",
            addr,
            projection ? "PROJECTION" : "MODELVIEW",
            set ? "SET" : "MULTIPLY",
            push ? "PUSH" : "OVERWRITE");
+#endif
 
     matrix4x4f32 new_matrix = load_matrix(addr);
 
@@ -378,7 +399,7 @@ int32_t op_vertex(display_item *item) {
     uint8_t count = (item->arg8 >> 4) + 1;
     uint8_t start_index = item->arg8 & 0xf;
     uint32_t addr = segment_address(item->arg32);
-    printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
+    //printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
     struct rdp_vertex *base = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
     for (uint8_t i = 0; i < count; i++) {
         struct rdp_vertex *rdp_vertex = &base[i];
@@ -401,16 +422,16 @@ int32_t op_vertex(display_item *item) {
 }
 
 int32_t op_call_display_list(display_item *item) {
-    printf("call display list\n");
+    //printf("call display list\n");
     uint32_t addr = segment_address(item->arg32);
     if (item->arg8 == DLIST_CALL) {
         interpret_display_list(addr);
         return 0;
     }
 
-    printf("jump display list\n");
     int32_t new_pc = addr;
     int32_t old_pc = (uint32_t)((uintptr_t)&item[1] - (uintptr_t)&plugin.memory.rdram);
+    //printf("jump display list new_pc=%08x old_pc=%08x\n", new_pc, old_pc);
     return new_pc - old_pc;
 }
 
@@ -420,22 +441,24 @@ int32_t op_draw_triangle(display_item *item) {
         (item->arg32 >> 8) / 10,
         (item->arg32 >> 0) / 10
     };
-    printf("draw triangle(%d,%d,%d)\n", (int)indices[0], (int)indices[1], (int)indices[2]);
+    //printf("draw triangle(%d,%d,%d)\n", (int)indices[0], (int)indices[1], (int)indices[2]);
     vertex transformed_vertices[3];
     for (int i = 0; i < 3; i++)
         transformed_vertices[i] = plugin_thread.rdp.vertices[indices[i]];
     triangle t = {
-        .v0 = transformed_vertex_position(&transformed_vertices[0]),
-        .v1 = transformed_vertex_position(&transformed_vertices[1]),
-        .v2 = transformed_vertex_position(&transformed_vertices[2]),
-        .c0 = transformed_vertex_color(&transformed_vertices[0]),
-        .c1 = transformed_vertex_color(&transformed_vertices[1]),
-        .c2 = transformed_vertex_color(&transformed_vertices[2]),
+        transformed_vertex_position(&transformed_vertices[0]),
+        transformed_vertex_position(&transformed_vertices[1]),
+        transformed_vertex_position(&transformed_vertices[2]),
+        transformed_vertex_color(&transformed_vertices[0]),
+        transformed_vertex_color(&transformed_vertices[1]),
+        transformed_vertex_color(&transformed_vertices[2]),
     };
+#if 0
     printf("drawing triangle vertices %d,%d,%d %d,%d,%d %d,%d,%d\n",
            t.v0.x, t.v0.y, t.v0.z,
            t.v1.x, t.v1.y, t.v1.z,
            t.v2.x, t.v2.y, t.v2.z);
+#endif
     draw_triangle(&plugin_thread.render_state, &t);
     return 0;
 }
@@ -449,15 +472,17 @@ int32_t op_pop_matrix(display_item *item) {
         if (plugin_thread.rdp.modelview_index > 0)
             plugin_thread.rdp.modelview_index--;
     }
+#if 0
     printf("pop matrix(%s) = %d\n",
            projection ? "PROJECTION" : "MODELVIEW",
            projection ? plugin_thread.rdp.projection_index : plugin_thread.rdp.modelview_index);
+#endif
     return 0;
 }
 
 int32_t op_move_word(display_item *item) {
     uint8_t type = item->arg16 & 0xff;
-    printf("move word(%d) %08x %08x\n", (int)type, ((uint32_t *)item)[0], ((uint32_t *)item)[1]);
+    //printf("move word(%d) %08x %08x\n", (int)type, ((uint32_t *)item)[0], ((uint32_t *)item)[1]);
     switch (type) {
     case MOVE_WORD_SEGMENT:
         {
@@ -471,24 +496,106 @@ int32_t op_move_word(display_item *item) {
     return 0;
 }
 
+int32_t op_set_fill_color(display_item *item) {
+    //printf("set fill color\n");
+    return 0;
+}
+
+int32_t op_set_blend_color(display_item *item) {
+    //printf("set blend color\n");
+    return 0;
+}
+
+int32_t op_set_prim_color(display_item *item) {
+    //printf("set prim color\n");
+    return 0;
+}
+
+int32_t op_set_env_color(display_item *item) {
+    //printf("set env color\n");
+    return 0;
+}
+
 int32_t op_end_display_list(display_item *item) {
     return -1;
 }
 
+#define SIXTEEN_NO_OPS \
+    op_noop, op_noop, op_noop, op_noop, \
+    op_noop, op_noop, op_noop, op_noop, \
+    op_noop, op_noop, op_noop, op_noop, \
+    op_noop, op_noop, op_noop, op_noop  \
+
 display_op_t OPS[256] = {
-    [0x00] = op_noop,
-    [0x01] = op_set_matrix,
-    [0x04] = op_vertex,
-    [0x06] = op_call_display_list,
-    [0xbf] = op_draw_triangle,
-    [0xbd] = op_pop_matrix,
-    [0xbc] = op_move_word,
-    [0xb8] = op_end_display_list,
+    op_noop,                        // 00
+    op_set_matrix,                  // 01
+    op_noop,                        // 02
+    op_noop,                        // 03
+    op_vertex,                      // 04
+    op_noop,                        // 05
+    op_call_display_list,           // 06
+    op_noop,                        // 07
+    op_noop,                        // 08
+    op_noop,                        // 09
+    op_noop,                        // 0a
+    op_noop,                        // 0b
+    op_noop,                        // 0c
+    op_noop,                        // 0d
+    op_noop,                        // 0e
+    op_noop,                        // 0f
+    SIXTEEN_NO_OPS,                 // 10
+    SIXTEEN_NO_OPS,                 // 20
+    SIXTEEN_NO_OPS,                 // 30
+    SIXTEEN_NO_OPS,                 // 40
+    SIXTEEN_NO_OPS,                 // 50
+    SIXTEEN_NO_OPS,                 // 60
+    SIXTEEN_NO_OPS,                 // 70
+    SIXTEEN_NO_OPS,                 // 80
+    SIXTEEN_NO_OPS,                 // 90
+    SIXTEEN_NO_OPS,                 // a0
+    op_noop,                        // b0
+    op_noop,                        // b1
+    op_noop,                        // b2
+    op_noop,                        // b3
+    op_noop,                        // b4
+    op_noop,                        // b5
+    op_noop,                        // b6
+    op_noop,                        // b7
+    op_end_display_list,            // b8
+    op_noop,                        // b9
+    op_noop,                        // ba
+    op_noop,                        // bb
+    op_move_word,                   // bc
+    op_pop_matrix,                  // bd
+    op_noop,                        // be
+    op_draw_triangle,               // bf
+    SIXTEEN_NO_OPS,                 // c0
+    SIXTEEN_NO_OPS,                 // d0
+    SIXTEEN_NO_OPS,                 // e0
+    op_noop,                        // f0
+    op_noop,                        // f1
+    op_noop,                        // f2
+    op_noop,                        // f3
+    op_noop,                        // f4
+    op_noop,                        // f5
+    op_noop,                        // f6
+    op_set_fill_color,              // f7
+    op_noop,                        // f8
+    op_set_blend_color,             // f9
+    op_set_prim_color,              // fa
+    op_set_env_color,               // fb
+    op_noop,                        // fc
+    op_noop,                        // fd
+    op_noop,                        // fe
+    op_noop,                        // ff
 };
 
 void interpret_display_list(uint32_t pc) {
     //printf("first pc=%08x op=%02x word=%08x\n", list->data_ptr, pc->op, *(uint32_t *)pc);
     while (true) {
+        if (pc > RDRAM_SIZE)
+            break;
+
         display_item *current = (display_item *)&plugin.memory.rdram[pc];
         display_op_t op = OPS[current->op];
         pc += 8;
@@ -502,8 +609,8 @@ void interpret_display_list(uint32_t pc) {
 }
 
 void process_display_list(display_list *list) {
-    printf("start master DL processing\n");
+    //printf("start master DL processing\n");
     interpret_display_list(list->data_ptr);
-    printf("end master DL processing\n");
+    //printf("end master DL processing\n");
 }
 

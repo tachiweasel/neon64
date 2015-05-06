@@ -9,7 +9,7 @@
 #define FRAMEBUFFER_HEIGHT      240
 #define TEXTURE_WIDTH           64
 #define TEXTURE_HEIGHT          64
-#define WORKER_THREAD_COUNT     1
+#define WORKER_THREAD_COUNT     4
 
 #define SUBFRAMEBUFFER_HEIGHT   ((FRAMEBUFFER_HEIGHT) / (WORKER_THREAD_COUNT))
 
@@ -61,7 +61,7 @@ struct render_state {
     texture *texture;
 };
 
-void init_render_state(render_state *render_state);
+void init_render_state(render_state *render_state, framebuffer *framebuffer);
 void draw_triangle(render_state *render_state, const triangle *t);
 
 #endif

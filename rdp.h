@@ -44,27 +44,8 @@ struct rdp {
     uint32_t segments[16];
 };
 
-struct plugin {
-    memory memory;
-    registers registers;
-};
-
-struct plugin_thread {
-    rdp rdp;
-    render_state render_state;
-};
-
-extern struct plugin plugin;
-
-extern struct plugin_thread plugin_thread;
-
-inline void send_dp_interrupt() {
-    *plugin.registers.mi_intr |= MI_INTR_DP;
-}
-
-inline void send_sp_interrupt() {
-    *plugin.registers.mi_intr |= MI_INTR_SP;
-}
+void send_dp_interrupt();
+void send_sp_interrupt();
 
 #endif
 

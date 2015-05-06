@@ -71,16 +71,38 @@ inline float32x4_t vmulq_f32(float32x4_t a, float32x4_t b) {
     return a * b;
 }
 
+inline int16x8_t vceqq_s16(int16x8_t a, int16x8_t b) {
+    return a == b;
+}
+
 inline int16x8_t vcltq_s16(int16x8_t a, int16x8_t b) {
     return a < b;
+}
+
+inline int16x8_t vcgeq_s16(int16x8_t a, int16x8_t b) {
+    return a >= b;
 }
 
 inline int16x8_t vandq_s16(int16x8_t a, int16x8_t b) {
     return a & b;
 }
 
+inline int16x8_t vandq_n_s16(int16x8_t vector, int16_t value) {
+    for (int i = 0; i < 8; i++) {
+        if (vector[i] < 0)
+            vector[i] = 0;
+        else if (vector[i] > 255)
+            vector[i] = 255;
+    }
+    return vector;
+}
+
 inline int16x8_t vaddq_s16(int16x8_t a, int16x8_t b) {
     return a + b;
+}
+
+inline int16x8_t vmvnq_s16(int16x8_t vector) {
+    return ~vector;
 }
 
 inline uint16x8_t vmvnq_u16(uint16x8_t vector) {
