@@ -14,6 +14,56 @@ struct plugin plugin;
 
 __thread struct plugin_thread plugin_thread;
 
+#ifdef __arm__
+#define WINDOW_WIDTH    1920
+#define WINDOW_HEIGHT   1080
+#else
+#define WINDOW_WIDTH    (FRAMEBUFFER_WIDTH * 2)
+#define WINDOW_HEIGHT   (FRAMEBUFFER_HEIGHT * 2)
+#endif
+
+#define CHECK_GL(function) \
+    do { \
+        function; \
+        GLenum err = glGetError(); \
+        if (err != GL_NO_ERROR) { \
+            printf("*** GL error %x on %s\n", err, #function); \
+        } \
+    } while(0)
+
+const char *VERTEX_SHADER =
+    "attribute vec2 aVertexPosition;\n"
+    "attribute vec2 aTextureCoord;\n"
+    "varying vec2 vTextureCoord;\n"
+    "void main(void) {\n"
+    "   gl_Position = vec4(aVertexPosition.x, aVertexPosition.y, 0.0, 1.0);\n"
+    "   vTextureCoord = aTextureCoord;\n"
+    "}\n";
+
+const char *FRAGMENT_SHADER =
+#ifdef __arm__
+    "precision mediump float;\n"
+#endif
+    "varying vec2 vTextureCoord;\n"
+    "uniform sampler2D uSampler;\n"
+    "void main(void) {\n"
+    "   gl_FragColor = texture2D(uSampler, vTextureCoord);\n"
+    "}\n";
+
+const float VERTICES[8] = {
+    -1.0, -1.0,
+    1.0,  -1.0,
+    -1.0, 1.0,
+    1.0,  1.0
+};
+
+const float TEXTURE_COORDS[8] = {
+    0.0, 1.0,
+    1.0, 1.0,
+    0.0, 0.0,
+    1.0, 0.0
+};
+
 extern "C" int dummy_gl_function() {
     return 0;
 }
@@ -97,20 +147,85 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
 
     SDL_Init(SDL_INIT_VIDEO);
 
-    SDL_Window *window = SDL_CreateWindow("neon64",
-                                          SDL_WINDOWPOS_UNDEFINED,
-                                          SDL_WINDOWPOS_UNDEFINED,
-                                          FRAMEBUFFER_WIDTH * 2,
-                                          FRAMEBUFFER_HEIGHT * 2,
-                                          0);
-    SDL_GL_CreateContext(window);
+    plugin.gl_state.window = SDL_CreateWindow("neon64",
+                                              SDL_WINDOWPOS_UNDEFINED,
+                                              SDL_WINDOWPOS_UNDEFINED,
+                                              WINDOW_WIDTH,
+                                              WINDOW_HEIGHT,
+                                              0);
+    SDL_GL_CreateContext(plugin.gl_state.window);
 
-    renderer = SDL_CreateRenderer(window, -1, 0);
+    renderer = SDL_CreateRenderer(plugin.gl_state.window, -1, 0);
     texture = SDL_CreateTexture(renderer,
                                 SDL_PIXELFORMAT_RGB565,
                                 SDL_TEXTUREACCESS_STREAMING,
                                 FRAMEBUFFER_WIDTH,
                                 SUBFRAMEBUFFER_HEIGHT);
+
+    CHECK_GL(glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT));
+    CHECK_GL(glEnable(GL_TEXTURE_2D));
+
+    plugin.gl_state.vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    CHECK_GL(glShaderSource(plugin.gl_state.vertex_shader, 1, &VERTEX_SHADER, NULL));
+    CHECK_GL(glCompileShader(plugin.gl_state.vertex_shader));
+    plugin.gl_state.fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    CHECK_GL(glShaderSource(plugin.gl_state.fragment_shader, 1, &FRAGMENT_SHADER, NULL));
+    CHECK_GL(glCompileShader(plugin.gl_state.fragment_shader));
+
+    plugin.gl_state.program = glCreateProgram();
+    CHECK_GL(glAttachShader(plugin.gl_state.program, plugin.gl_state.vertex_shader));
+    CHECK_GL(glAttachShader(plugin.gl_state.program, plugin.gl_state.fragment_shader));
+    CHECK_GL(glLinkProgram(plugin.gl_state.program));
+    CHECK_GL(glUseProgram(plugin.gl_state.program));
+    char log[4096];
+    glGetProgramInfoLog(plugin.gl_state.program, 4096, NULL, log);
+    printf("program log: %s\n", log);
+
+    plugin.gl_state.vertex_position_attribute = glGetAttribLocation(plugin.gl_state.program,
+                                                                    "aVertexPosition");
+    plugin.gl_state.texture_coord_attribute = glGetAttribLocation(plugin.gl_state.program,
+                                                                  "aTextureCoord");
+
+    CHECK_GL(glGenBuffers(1, &plugin.gl_state.vertex_position_buffer));
+    CHECK_GL(glBindBuffer(GL_ARRAY_BUFFER, plugin.gl_state.vertex_position_buffer));
+    CHECK_GL(glEnableVertexAttribArray(plugin.gl_state.vertex_position_attribute));
+    CHECK_GL(glVertexAttribPointer(plugin.gl_state.vertex_position_attribute,
+                                   2,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   0,
+                                   NULL));
+    CHECK_GL(glBufferData(GL_ARRAY_BUFFER, sizeof(VERTICES), VERTICES, GL_STATIC_DRAW));
+
+    CHECK_GL(glGenBuffers(1, &plugin.gl_state.texture_coord_buffer));
+    CHECK_GL(glBindBuffer(GL_ARRAY_BUFFER, plugin.gl_state.texture_coord_buffer));
+    CHECK_GL(glEnableVertexAttribArray(plugin.gl_state.texture_coord_attribute));
+    CHECK_GL(glVertexAttribPointer(plugin.gl_state.texture_coord_attribute,
+                                   2,
+                                   GL_FLOAT,
+                                   GL_FALSE,
+                                   0,
+                                   NULL));
+    CHECK_GL(glBufferData(GL_ARRAY_BUFFER,
+                          sizeof(TEXTURE_COORDS),
+                          TEXTURE_COORDS,
+                          GL_STATIC_DRAW));
+
+    CHECK_GL(glGenTextures(1, &plugin.gl_state.texture));
+    CHECK_GL(glBindTexture(GL_TEXTURE_2D, plugin.gl_state.texture));
+    CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+    CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+    CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
+    CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+    CHECK_GL(glTexImage2D(GL_TEXTURE_2D,
+                          0,
+                          GL_RGB,
+                          FRAMEBUFFER_WIDTH,
+                          FRAMEBUFFER_HEIGHT,
+                          0,
+                          GL_RGB,
+                          GL_UNSIGNED_SHORT_5_6_5,
+                          NULL));
 
     for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
         worker_thread_comm *worker = &plugin.workers[i];
@@ -149,13 +264,29 @@ extern "C" void ProcessDList() {
                       NULL,
                       plugin.workers[0].framebuffer->pixels,
                       FRAMEBUFFER_WIDTH * sizeof(uint16_t));
+
+    CHECK_GL(glClear(GL_COLOR_BUFFER_BIT));
+    CHECK_GL(glBindTexture(GL_TEXTURE_2D, plugin.gl_state.texture));
+    CHECK_GL(glTexImage2D(GL_TEXTURE_2D,
+                          0,
+                          GL_RGB,
+                          FRAMEBUFFER_WIDTH,
+                          FRAMEBUFFER_HEIGHT,
+                          0,
+                          GL_RGB,
+                          GL_UNSIGNED_SHORT_5_6_5,
+                          plugin.workers[0].framebuffer->pixels));
+    CHECK_GL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
+
+#if 0
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
+#endif
 
     uint32_t end_time = SDL_GetTicks();
     printf("rendered frame in %dms\n", end_time - start_time);
 
-    SDL_RenderPresent(renderer);
+    SDL_GL_SwapWindow(plugin.gl_state.window);
 
     send_dp_interrupt();
     send_sp_interrupt();

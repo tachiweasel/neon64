@@ -455,7 +455,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
             if (draw)
                 draw_pixels(render_state, &p, t, z, r, g, b, mask);
 
-dont_draw:
+//dont_draw:
             w0 += e12.x_step;
             w1 += e20.x_step;
             w2 += e01.x_step;
