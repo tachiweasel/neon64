@@ -224,7 +224,7 @@ void draw_pixels(render_state *render_state,
 
 #endif
 
-    uint16x8_t *ptr = (uint16x8_t *)&render_state->framebuffer->pixels[index];
+    uint16x8_t *ptr = (uint16x8_t *)&render_state->framebuffer.pixels[index];
     *ptr = (*ptr & ~mask) | pixels;
 }
 
@@ -244,7 +244,7 @@ inline int16x8_t setup_triangle_edge(triangle_edge *edge,
     int16_t c = v0->x * v1->y - v0->y * v1->x;
 
     edge->x_step = vdupq_n_s16(a * PIXEL_STEP_SIZE);
-    edge->y_step = vdupq_n_s16(b);
+    edge->y_step = vdupq_n_s16(b * WORKER_THREAD_COUNT);
 
     int16x8_t x = vdupq_n_s16(origin->x);
     int16x8_t addend = { 0, 1, 2, 3, 4, 5, 6, 7 };
@@ -331,6 +331,9 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     const vec4i16 *v0 = &t->v0, *v1 = &t->v1, *v2 = &t->v2;
     int16_t min_x = min3i16(v0->x, v1->x, v2->x), min_y = min3i16(v0->y, v1->y, v2->y);
     int16_t max_x = max3i16(v0->x, v1->x, v2->x), max_y = max3i16(v0->y, v1->y, v2->y);
+
+    min_y = (min_y & ~(WORKER_THREAD_COUNT - 1)) + (min_y > 0 ? -1 : 0) - render_state->worker_id;
+
     min_x = maxi16(min_x, -FRAMEBUFFER_WIDTH / 2) & ~7;
     min_y = maxi16(min_y, -FRAMEBUFFER_HEIGHT / 2);
     max_x = mini16(max_x, FRAMEBUFFER_WIDTH / 2 - 1);
@@ -495,9 +498,9 @@ void *worker_thread(void *cookie) {
     return NULL;
 }
 
-void init_render_state(render_state *render_state, framebuffer *framebuffer) {
-    render_state->framebuffer = framebuffer;
-    memset(render_state->framebuffer->pixels,
+void init_render_state(render_state *render_state, framebuffer *framebuffer, uint32_t worker_id) {
+    render_state->framebuffer.pixels = framebuffer->pixels;
+    memset(render_state->framebuffer.pixels,
            '\0',
            sizeof(uint16_t) * FRAMEBUFFER_WIDTH * SUBFRAMEBUFFER_HEIGHT);
 
@@ -508,6 +511,8 @@ void init_render_state(render_state *render_state, framebuffer *framebuffer) {
     render_state->texture = new texture;
     for (int j = 0; j < TEXTURE_WIDTH * TEXTURE_HEIGHT; j++)
         render_state->texture->pixels[j] = rand();
+
+    render_state->worker_id = worker_id;
 }
 
 int main(int argc, char **argv) {
@@ -565,7 +570,7 @@ int main(int argc, char **argv) {
     worker_thread_info worker_thread_info[WORKER_THREAD_COUNT];
     for (int16_t i = 0; i < WORKER_THREAD_COUNT; i++) {
         render_state *render_state = new struct render_state;
-        init_render_state(render_state, new framebuffer);
+        init_render_state(render_state, new framebuffer, i);
 
         worker_thread_info[i].id = i;
         pthread_cond_init(&worker_thread_info[i].finished_cond, NULL);

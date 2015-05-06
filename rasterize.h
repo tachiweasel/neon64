@@ -5,11 +5,12 @@
 
 #include <stdint.h>
 
-#define FRAMEBUFFER_WIDTH       320
-#define FRAMEBUFFER_HEIGHT      240
-#define TEXTURE_WIDTH           64
-#define TEXTURE_HEIGHT          64
-#define WORKER_THREAD_COUNT     1
+#define FRAMEBUFFER_WIDTH           320
+#define FRAMEBUFFER_HEIGHT          240
+#define TEXTURE_WIDTH               64
+#define TEXTURE_HEIGHT              64
+#define WORKER_THREAD_COUNT         1
+#define WORKER_THREAD_COUNT_STRING  "1.0"
 
 #define SUBFRAMEBUFFER_HEIGHT   ((FRAMEBUFFER_HEIGHT) / (WORKER_THREAD_COUNT))
 
@@ -48,7 +49,7 @@ struct triangle {
 
 
 struct framebuffer {
-    uint16_t pixels[FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1)];
+    uint16_t *pixels;
 };
 
 struct texture {
@@ -56,12 +57,13 @@ struct texture {
 };
 
 struct render_state {
-    framebuffer *framebuffer;
+    framebuffer framebuffer;
     int16_t *depth;
     texture *texture;
+    uint32_t worker_id;
 };
 
-void init_render_state(render_state *render_state, framebuffer *framebuffer);
+void init_render_state(render_state *render_state, framebuffer *framebuffer, uint32_t worker_id);
 void draw_triangle(render_state *render_state, const triangle *t);
 
 #endif

@@ -47,21 +47,24 @@ const char *FRAGMENT_SHADER =
     "varying vec2 vTextureCoord;\n"
     "uniform sampler2D uSampler;\n"
     "void main(void) {\n"
-    "   gl_FragColor = texture2D(uSampler, vTextureCoord);\n"
+    "   float y = floor(vTextureCoord.y * 240.0) / " WORKER_THREAD_COUNT_STRING ";\n"
+    "   y = floor(y) / 240.0 + fract(y);\n"
+    "   vec4 color = texture2D(uSampler, vec2(vTextureCoord.x, y));\n"
+    "   gl_FragColor = color;\n"
     "}\n";
 
 const float VERTICES[8] = {
-    -1.0, -1.0,
-    1.0,  -1.0,
     -1.0, 1.0,
-    1.0,  1.0
+    1.0,  1.0,
+    -1.0, -1.0,
+    1.0,  -1.0
 };
 
 const float TEXTURE_COORDS[8] = {
-    0.0, 1.0,
-    1.0, 1.0,
     0.0, 0.0,
-    1.0, 0.0
+    1.0, 0.0,
+    0.0, 1.0,
+    1.0, 1.0
 };
 
 extern "C" int dummy_gl_function() {
@@ -71,7 +74,7 @@ extern "C" int dummy_gl_function() {
 void *worker_thread_main(void *arg) {
     uint32_t id = (uint32_t)(uintptr_t)arg;
     worker_thread_comm *worker = &plugin.workers[id];
-    init_render_state(&plugin_thread.render_state, worker->framebuffer);
+    init_render_state(&plugin_thread.render_state, &worker->framebuffer, id);
 
     pthread_mutex_lock(&worker->rendering_lock);
     while (true) {
@@ -81,7 +84,7 @@ void *worker_thread_main(void *arg) {
 
         srand(1);
 
-        memset(plugin_thread.render_state.framebuffer->pixels,
+        memset(plugin_thread.render_state.framebuffer.pixels,
                '\0',
                sizeof(uint16_t) * FRAMEBUFFER_WIDTH * SUBFRAMEBUFFER_HEIGHT);
         for (int i = 0; i < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); i++)
@@ -137,13 +140,12 @@ extern "C" int ChangeWindow() {
     return 1;
 }
 
-SDL_Renderer *renderer;
-SDL_Texture *texture;
-
 extern "C" int InitiateGFX(GFX_INFO gfx_info) {
     plugin.memory.rdram = gfx_info.RDRAM;
     plugin.memory.dmem = gfx_info.DMEM;
     plugin.registers.mi_intr = gfx_info.MI_INTR_REG;
+
+    plugin.pixels = new uint16_t[FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT];
 
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -154,13 +156,6 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
                                               WINDOW_HEIGHT,
                                               0);
     SDL_GL_CreateContext(plugin.gl_state.window);
-
-    renderer = SDL_CreateRenderer(plugin.gl_state.window, -1, 0);
-    texture = SDL_CreateTexture(renderer,
-                                SDL_PIXELFORMAT_RGB565,
-                                SDL_TEXTUREACCESS_STREAMING,
-                                FRAMEBUFFER_WIDTH,
-                                SUBFRAMEBUFFER_HEIGHT);
 
     CHECK_GL(glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT));
     CHECK_GL(glEnable(GL_TEXTURE_2D));
@@ -229,7 +224,7 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
 
     for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
         worker_thread_comm *worker = &plugin.workers[i];
-        worker->framebuffer = new framebuffer;
+        worker->framebuffer.pixels = &plugin.pixels[FRAMEBUFFER_WIDTH * SUBFRAMEBUFFER_HEIGHT * i];
         pthread_mutex_init(&worker->rendering_lock, NULL);
         pthread_cond_init(&worker->rendering_cond, NULL);
         worker->rendering = false;
@@ -260,11 +255,6 @@ extern "C" void ProcessDList() {
         pthread_mutex_unlock(&worker->rendering_lock);
     }
 
-    SDL_UpdateTexture(texture,
-                      NULL,
-                      plugin.workers[0].framebuffer->pixels,
-                      FRAMEBUFFER_WIDTH * sizeof(uint16_t));
-
     CHECK_GL(glClear(GL_COLOR_BUFFER_BIT));
     CHECK_GL(glBindTexture(GL_TEXTURE_2D, plugin.gl_state.texture));
     CHECK_GL(glTexImage2D(GL_TEXTURE_2D,
@@ -275,13 +265,8 @@ extern "C" void ProcessDList() {
                           0,
                           GL_RGB,
                           GL_UNSIGNED_SHORT_5_6_5,
-                          plugin.workers[0].framebuffer->pixels));
+                          plugin.pixels));
     CHECK_GL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
-
-#if 0
-    SDL_RenderClear(renderer);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
-#endif
 
     uint32_t end_time = SDL_GetTicks();
     printf("rendered frame in %dms\n", end_time - start_time);

@@ -18,7 +18,7 @@ struct SDL_Window;
 
 struct worker_thread_comm {
     pthread_t thread;
-    framebuffer *framebuffer;
+    framebuffer framebuffer;
     pthread_mutex_t rendering_lock;
     pthread_cond_t rendering_cond;
     bool rendering;
@@ -40,6 +40,7 @@ struct plugin {
     memory memory;
     registers registers;
     gl_state gl_state;
+    uint16_t *pixels;
     worker_thread_comm workers[WORKER_THREAD_COUNT];
 };
 
