@@ -271,20 +271,20 @@ inline int16x8_t normalize_triangle_edge(triangle_edge *edge,
 
     float32x4_t wlowf = vcvtq_f32_s32(w_low);
     float32x4_t whighf = vcvtq_f32_s32(w_high);
-    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 256.0), wrecip_sumf);
-    whighf = vmulq_f32(vmulq_n_f32(whighf, 256.0), wrecip_sumf);
+    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 32768.0), wrecip_sumf);
+    whighf = vmulq_f32(vmulq_n_f32(whighf, 32768.0), wrecip_sumf);
     int16x8_t normalized_w = vcombine_s16(vmovn_s32(vcvtq_s32_f32(wlowf)),
                                           vmovn_s32(vcvtq_s32_f32(whighf)));
 
     float32x4_t x_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->x_step)));
     float32x4_t x_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->x_step)));
-    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 256.0), wrecip_sumf);
-    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 256.0), wrecip_sumf);
+    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 32768.0), wrecip_sumf);
+    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 32768.0), wrecip_sumf);
 
     float32x4_t y_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->y_step)));
     float32x4_t y_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->y_step)));
-    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 256.0), wrecip_sumf);
-    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 256.0), wrecip_sumf);
+    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 32768.0), wrecip_sumf);
+    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 32768.0), wrecip_sumf);
 
     return normalized_w;
 }
@@ -303,22 +303,28 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_row_high = vmovl_s16(vget_high_s16(w1_row));
     int32x4_t w2_row_low = vmovl_s16(vget_low_s16(w2_row));
     int32x4_t w2_row_high = vmovl_s16(vget_high_s16(w2_row));
-    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 8);
-    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 8);
-    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 8);
-    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 8);
+    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 15);
+    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 15);
+    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 15);
+    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 15);
+    int32x4_t row_low = vaddq_s32(vdupq_n_s32(x0), vaddq_s32(w1_row_low, w2_row_low));
+    int32x4_t row_high = vaddq_s32(vdupq_n_s32(x0), vaddq_s32(w1_row_high, w2_row_high));
+    varying->row = vcombine_s16(vmovn_s32(row_low), vmovn_s32(row_high));
+
+#if 0
     w1_row = vcombine_s16(vmovn_s32(w1_row_low), vmovn_s32(w1_row_high));
     w2_row = vcombine_s16(vmovn_s32(w2_row_low), vmovn_s32(w2_row_high));
     varying->row = vaddq_s16(vdupq_n_s16(x0), vaddq_s16(w1_row, w2_row));
+#endif
 
     int32x4_t w1_x_step_low = vmovl_s16(vget_low_s16(w1_x_step));
     int32x4_t w1_x_step_high = vmovl_s16(vget_high_s16(w1_x_step));
     int32x4_t w2_x_step_low = vmovl_s16(vget_low_s16(w2_x_step));
     int32x4_t w2_x_step_high = vmovl_s16(vget_high_s16(w2_x_step));
-    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 8);
-    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 8);
-    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 8);
-    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 8);
+    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 15);
+    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 15);
+    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 15);
+    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 15);
     int32x4_t x_step_low = vaddq_s32(w1_x_step_low, w2_x_step_low);
     int32x4_t x_step_high = vaddq_s32(w1_x_step_high, w2_x_step_high);
     varying->x_step = vcombine_s16(vmovn_s32(x_step_low), vmovn_s32(x_step_high));
@@ -333,10 +339,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_y_step_high = vmovl_s16(vget_high_s16(w1_y_step));
     int32x4_t w2_y_step_low = vmovl_s16(vget_low_s16(w2_y_step));
     int32x4_t w2_y_step_high = vmovl_s16(vget_high_s16(w2_y_step));
-    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 8);
-    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 8);
-    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 8);
-    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 8);
+    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 15);
+    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 15);
+    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 15);
+    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 15);
     int32x4_t y_step_low = vaddq_s32(w1_y_step_low, w2_y_step_low);
     int32x4_t y_step_high = vaddq_s32(w1_y_step_high, w2_y_step_high);
     varying->y_step = vcombine_s16(vmovn_s32(y_step_low), vmovn_s32(y_step_high));
@@ -362,7 +368,10 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     max_x = mini16(max_x, FRAMEBUFFER_WIDTH / 2 - 1);
     max_y = mini16(max_y, FRAMEBUFFER_HEIGHT / 2 - 1);
 
-    if (v0->z <= 0 || v1->z <= 0 || v2->z <= 0)
+    // FIXME(tachiweasel): Cheap clipping hack. Do this properly.
+    if (v0->z <= -500.0 || v1->z <= -500.0 || v2->z <= -500.0)
+        return;
+    if (v0->z == 0.0 || v1->z == 0.0 || v2->z == 0.0)
         return;
 #if 0
     if (v0->x < -500.0 || v1->x < -500.0 || v2->x < -500.0)
