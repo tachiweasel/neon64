@@ -261,7 +261,7 @@ void transform_and_light_vertex(vertex *vertex) {
 
     position = vsetq_lane_f32(vgetq_lane_f32(position, 0) * (FRAMEBUFFER_WIDTH / 2), position, 0);
     position = vsetq_lane_f32(vgetq_lane_f32(position, 1) * (FRAMEBUFFER_HEIGHT / 2), position, 1);
-    printf("vertex z: %f\n", vgetq_lane_f32(position, 2));
+    //printf("vertex z: %f\n", vgetq_lane_f32(position, 2));
     position = vsetq_lane_f32(vgetq_lane_f32(position, 2), position, 2);
 
 #if 0

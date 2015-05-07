@@ -72,7 +72,7 @@ struct varying {
 
 #ifdef __arm__
 
-bool is_zero(int16x8_t vector) {
+__attribute__((always_inline)) bool is_zero(int16x8_t vector) {
     uint32_t cond;
     __asm__("vsli.32 %f0,%e0,#16\n"
             "vcmp.f64 %f0,#0\n"
@@ -145,7 +145,7 @@ int oneify(int value) {
     return value == 0 ? 1 : value;
 }
 
-void draw_pixels(render_state *render_state,
+__attribute__((always_inline)) void draw_pixels(render_state *render_state,
                  const vec2i16 *origin,
                  const triangle *triangle,
                  int16x8_t z,
@@ -166,6 +166,26 @@ void draw_pixels(render_state *render_state,
     mask = vandq_s16(mask, vcltq_s16(z, z_values));
     if (is_zero(mask))
         return;
+
+#define Z_BUFFER_COUNT(i) \
+    do { \
+        uint16_t hit = vgetq_lane_u16(mask, i); \
+        if (hit) { \
+            render_state->z_buffered_pixels_drawn++; \
+        } \
+    } while(0)
+
+#if 0
+    Z_BUFFER_COUNT(0);
+    Z_BUFFER_COUNT(1);
+    Z_BUFFER_COUNT(2);
+    Z_BUFFER_COUNT(3);
+    Z_BUFFER_COUNT(4);
+    Z_BUFFER_COUNT(5);
+    Z_BUFFER_COUNT(6);
+    Z_BUFFER_COUNT(7);
+#endif
+
     *z_values_ptr = vorrq_s16(vandq_s16(z_values, vmvnq_u16(mask)), vandq_s16(z, mask));
 
 #ifdef TEXTURING
@@ -202,10 +222,12 @@ void draw_pixels(render_state *render_state,
     mask = vmvnq_s16(vceqq_s16(mask, vdupq_n_u16(0)));
 
 #ifdef COLORING
+
     // FIXME(tachiweasel): Maybe remove the `vandq_n_s16` below if we get better accuracy.
     r = vandq_s16(r, vdupq_n_s16(0xff));
     g = vandq_s16(g, vdupq_n_s16(0xff));
     b = vandq_s16(b, vdupq_n_s16(0xff));
+
 #if 0
     printf("r=%d g=%d b=%d\n",
            (int)vgetq_lane_s16(r, 0),
@@ -223,7 +245,7 @@ void draw_pixels(render_state *render_state,
 #endif
 
     uint16x8_t *ptr = (uint16x8_t *)&render_state->framebuffer.pixels[index];
-    *ptr = (*ptr & ~mask) | pixels;
+    *ptr = vorrq_u16(vandq_u16(*ptr, vmvnq_u16(mask)), pixels);
 }
 
 vec2i16 rand_vec2i16() {
@@ -359,7 +381,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     int16_t min_x = min3i16(v0->x, v1->x, v2->x), min_y = min3i16(v0->y, v1->y, v2->y);
     int16_t max_x = max3i16(v0->x, v1->x, v2->x), max_y = max3i16(v0->y, v1->y, v2->y);
 
-#if 0
+#if WORKER_THREAD_COUNT > 1
     min_y = (min_y & ~(WORKER_THREAD_COUNT - 1)) + (min_y > 0 ? -1 : 0) - render_state->worker_id;
 #endif
 
@@ -383,6 +405,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     if (v0->y > 500.0 || v1->y > 500.0 || v2->y > 500.0)
         return;
 #endif
+
+    render_state->triangles_drawn++;
 
     triangle_edge e01, e12, e20;
     vec2i16 origin = { min_x, min_y };
@@ -414,13 +438,14 @@ void draw_triangle(render_state *render_state, const triangle *t) {
 #if 0
     z_varying.x_step = vdupq_n_s16(0);
     z_varying.y_step = vdupq_n_s16(0);
-#endif
+
     printf("z varying z0=%d z1=%d z2=%d step=(%d,%d)\n",
             (int)t->v0.z,
             (int)t->v1.z,
             (int)t->v2.z,
             (int)z_varying.x_step[0],
             (int)z_varying.y_step[0]);
+#endif
 
     varying r_varying;
     setup_varying(&r_varying,
@@ -433,6 +458,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   e01.x_step,
                   e20.y_step,
                   e01.y_step);
+
 #if 0
     printf("r varying c0.r=%d c1.r=%d c2.r=%d step=(%d,%d)\n",
            (int)t->c0.r,
@@ -466,6 +492,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
                   e20.y_step,
                   e01.y_step);
 
+#if 0
     r_varying.row = vdupq_n_s16(t->c0.r);
     g_varying.row = vdupq_n_s16(t->c0.g);
     b_varying.row = vdupq_n_s16(t->c0.b);
@@ -475,6 +502,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     g_varying.y_step = vdupq_n_s16(0);
     b_varying.x_step = vdupq_n_s16(0);
     b_varying.y_step = vdupq_n_s16(0);
+#endif
 
     int32x4_t zero = vdupq_n_s32(0);
 
@@ -505,10 +533,12 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         uint16_t hit = vgetq_lane_u16(mask, i); \
         if (hit) { \
             draw = true; \
+            render_state->pixels_drawn++; \
         } \
     } while(0)
 
             TEST(0);
+#if 0
             TEST(1);
             TEST(2);
             TEST(3);
@@ -516,6 +546,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
             TEST(5);
             TEST(6);
             TEST(7);
+#endif
 
             //COMPARE_GE_INT16X8(mask, w0 | w1 | w2, zero, dont_draw);
 

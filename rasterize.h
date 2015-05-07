@@ -9,8 +9,8 @@
 #define FRAMEBUFFER_HEIGHT          240
 #define TEXTURE_WIDTH               64
 #define TEXTURE_HEIGHT              64
-#define WORKER_THREAD_COUNT         1
-#define WORKER_THREAD_COUNT_STRING  "1.0"
+#define WORKER_THREAD_COUNT         4
+#define WORKER_THREAD_COUNT_STRING  "4.0"
 
 #define SUBFRAMEBUFFER_HEIGHT   ((FRAMEBUFFER_HEIGHT) / (WORKER_THREAD_COUNT))
 
@@ -61,6 +61,9 @@ struct render_state {
     int16_t *depth;
     texture *texture;
     uint32_t worker_id;
+    uint32_t pixels_drawn;
+    uint32_t z_buffered_pixels_drawn;
+    uint32_t triangles_drawn;
 };
 
 void init_render_state(render_state *render_state, framebuffer *framebuffer, uint32_t worker_id);

@@ -93,6 +93,10 @@ inline int16x8_t vandq_s16(int16x8_t a, int16x8_t b) {
     return a & b;
 }
 
+inline uint16x8_t vandq_u16(uint16x8_t a, uint16x8_t b) {
+    return a & b;
+}
+
 inline int16x8_t vandq_n_s16(int16x8_t vector, int16_t value) {
     for (int i = 0; i < 8; i++) {
         if (vector[i] < 0)
@@ -116,6 +120,10 @@ inline uint16x8_t vmvnq_u16(uint16x8_t vector) {
 }
 
 inline int16x8_t vorrq_s16(int16x8_t a, int16x8_t b) {
+    return a | b;
+}
+
+inline uint16x8_t vorrq_u16(uint16x8_t a, uint16x8_t b) {
     return a | b;
 }
 

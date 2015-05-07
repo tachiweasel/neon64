@@ -89,8 +89,21 @@ void *worker_thread_main(void *arg) {
                sizeof(uint16_t) * FRAMEBUFFER_WIDTH * SUBFRAMEBUFFER_HEIGHT);
         for (int i = 0; i < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); i++)
             plugin_thread.render_state.depth[i] = 0x7fff;
+        plugin_thread.render_state.pixels_drawn = 0;
+        plugin_thread.render_state.z_buffered_pixels_drawn = 0;
+        plugin_thread.render_state.triangles_drawn = 0;
 
         process_display_list((display_list *)&plugin.memory.dmem[0x0fc0]);
+
+#if 0
+        printf("drew %d pixels (%d z-buffered), %d triangles, pixels/triangle %d\n",
+               plugin_thread.render_state.pixels_drawn,
+               plugin_thread.render_state.z_buffered_pixels_drawn,
+               plugin_thread.render_state.triangles_drawn,
+               (plugin_thread.render_state.triangles_drawn == 0 ? 0 :
+                plugin_thread.render_state.pixels_drawn /
+                plugin_thread.render_state.triangles_drawn));
+#endif
 
         pthread_mutex_lock(&worker->rendering_lock);
         worker->rendering = false;
@@ -269,7 +282,14 @@ extern "C" void ProcessDList() {
     CHECK_GL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
     uint32_t end_time = SDL_GetTicks();
-    printf("rendered frame in %dms\n", end_time - start_time);
+    uint32_t elapsed_time = end_time - start_time;
+    if (elapsed_time >= 28) {
+        printf("rendered frame in %dms -- %dms too slow\n",
+               elapsed_time,
+               elapsed_time - 28);
+    } else {
+        printf("rendered frame in %dms\n", elapsed_time);
+    }
 
     SDL_GL_SwapWindow(plugin.gl_state.window);
 
