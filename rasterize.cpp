@@ -146,23 +146,18 @@ int oneify(int value) {
 }
 
 __attribute__((always_inline)) void draw_pixels(render_state *render_state,
-                 const vec2i16 *origin,
-                 const triangle *triangle,
-                 int16x8_t z,
-                 int16x8_t r,
-                 int16x8_t g,
-                 int16x8_t b,
-                 uint16x8_t mask) {
+                                                uint16x8_t *framebuffer_pixels,
+                                                int16x8_t *z_pixels,
+                                                const triangle *triangle,
+                                                int16x8_t z,
+                                                int16x8_t r,
+                                                int16x8_t g,
+                                                int16x8_t b,
+                                                uint16x8_t mask) {
     uint16x8_t pixels = vdupq_n_u16(0);
 
-    // Compute index into the pixel/depth buffer.
-    int row = (-origin->y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
-    int column = origin->x + FRAMEBUFFER_WIDTH / 2;
-    int index = row * FRAMEBUFFER_WIDTH + column;
-
     // Z-buffer.
-    int16x8_t *z_values_ptr = (int16x8_t *)&render_state->depth[index];
-    int16x8_t z_values = *z_values_ptr;
+    int16x8_t z_values = *z_pixels;
     mask = vandq_s16(mask, vcltq_s16(z, z_values));
     if (is_zero(mask))
         return;
@@ -186,7 +181,7 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
     Z_BUFFER_COUNT(7);
 #endif
 
-    *z_values_ptr = vorrq_s16(vandq_s16(z_values, vmvnq_u16(mask)), vandq_s16(z, mask));
+    *z_pixels = vorrq_s16(vandq_s16(z_values, vmvnq_u16(mask)), vandq_s16(z, mask));
 
 #ifdef TEXTURING
     int16x8_t s = lerp_int16x8(triangle->t0.x,
@@ -244,8 +239,7 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
 
 #endif
 
-    uint16x8_t *ptr = (uint16x8_t *)&render_state->framebuffer.pixels[index];
-    *ptr = vorrq_u16(vandq_u16(*ptr, vmvnq_u16(mask)), pixels);
+    *framebuffer_pixels = vorrq_u16(vandq_u16(*framebuffer_pixels, vmvnq_u16(mask)), pixels);
 }
 
 vec2i16 rand_vec2i16() {
@@ -504,6 +498,14 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     b_varying.y_step = vdupq_n_s16(0);
 #endif
 
+    // FIXME(tachiweasel): Why do we go backwards? Bad on the cache!
+    int framebuffer_y = (-min_y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
+    int framebuffer_x = min_x + FRAMEBUFFER_WIDTH / 2;
+    int framebuffer_index = framebuffer_y * FRAMEBUFFER_WIDTH + framebuffer_x;
+    uint16_t *framebuffer_row_pixels =
+        &render_state->framebuffer.pixels[framebuffer_index];
+    int16_t *z_row_pixels = &render_state->depth[framebuffer_index];
+
     int32x4_t zero = vdupq_n_s32(0);
 
     for (int16_t y = min_y; y <= max_y; y += WORKER_THREAD_COUNT) {
@@ -512,8 +514,9 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         int32x4_t w2_low = w2_row_low, w2_high = w2_row_high;
         int16x8_t z = z_varying.row;
         int16x8_t r = r_varying.row, g = g_varying.row, b = b_varying.row;
+        uint16x8_t *framebuffer_pixels = (uint16x8_t *)framebuffer_row_pixels;
+        int16x8_t *z_pixels = (int16x8_t *)z_row_pixels;
         for (int16_t x = min_x; x <= max_x; x += PIXEL_STEP_SIZE) {
-            vec2i16 p = { x, y };
             // FIXME(tachiweasel): I think this is slow.
             uint32x4_t mask_low = vcgeq_s32(vorrq_s32(w0_low, vorrq_s32(w1_low, w2_low)), zero);
             uint32x4_t mask_high =
@@ -551,7 +554,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
             //COMPARE_GE_INT16X8(mask, w0 | w1 | w2, zero, dont_draw);
 
             if (draw)
-                draw_pixels(render_state, &p, t, z, r, g, b, mask);
+                draw_pixels(render_state, framebuffer_pixels, z_pixels, t, z, r, g, b, mask);
 
 //dont_draw:
             w0_low += e12.x_step;
@@ -564,6 +567,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
             r += r_varying.x_step;
             g += g_varying.x_step;
             b += b_varying.x_step;
+            framebuffer_pixels = (uint16x8_t *)((uint16_t *)framebuffer_pixels + PIXEL_STEP_SIZE);
+            z_pixels = (int16x8_t *)((int16_t *)z_pixels + PIXEL_STEP_SIZE);
         }
 
         w0_row_low += e12.y_step;
@@ -576,6 +581,8 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         r_varying.row += r_varying.y_step;
         g_varying.row += g_varying.y_step;
         b_varying.row += b_varying.y_step;
+        framebuffer_row_pixels = &framebuffer_row_pixels[-FRAMEBUFFER_WIDTH];
+        z_row_pixels = &z_row_pixels[FRAMEBUFFER_WIDTH];
     }
 }
 

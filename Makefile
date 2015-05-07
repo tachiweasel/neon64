@@ -1,6 +1,6 @@
 CXX=g++
 LIBS?=-lSDL2
-CXXFLAGS+=-O2 -Wall -fpermissive -flax-vector-conversions -pthread
+CXXFLAGS+=-Wall -fpermissive -flax-vector-conversions -pthread
 SO?=.so
 SHARED?=-shared
 PIC?=-fPIC
