@@ -32,6 +32,21 @@ struct vertex {
     uint32_t rgba;
 };
 
+struct tile {
+    // Color format.
+    uint8_t format;
+    // Bits per pixel.
+    uint8_t size;
+    // The texture memory location.
+    uint32_t addr;
+    uint8_t mask_s;
+    uint8_t mask_t;
+    uint8_t shift_s;
+    uint8_t shift_t;
+    uint32_t width;
+    uint32_t height;
+};
+
 struct rdp {
     matrix4x4f32 projection[16];
     uint32_t projection_index;
@@ -40,6 +55,8 @@ struct rdp {
     uint32_t modelview_index;
 
     vertex vertices[128];
+
+    tile tiles[8];
 
     uint32_t segments[16];
 };

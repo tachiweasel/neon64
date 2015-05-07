@@ -510,6 +510,11 @@ int32_t op_pop_matrix(display_item *item) {
     return 0;
 }
 
+int32_t op_texture(display_item *item) {
+    printf("texture\n");
+    return 0;
+}
+
 int32_t op_move_word(display_item *item) {
     uint8_t type = item->arg16 & 0xff;
     //printf("move word(%d) %08x %08x\n", (int)type, ((uint32_t *)item)[0], ((uint32_t *)item)[1]);
@@ -533,6 +538,44 @@ int32_t op_move_word(display_item *item) {
             break;
         }
     }
+    return 0;
+}
+
+int32_t op_load_block(display_item *item) {
+    uint32_t tile_index = (item->arg32 >> 5) & 0x7;
+    uint16_t tl = item->arg16 & 0xfff;
+    uint16_t sl = (uint16_t)(item->arg16 >> 12) | (uint16_t)(item->arg8 << 4);
+    uint16_t th = (item->arg32 >> 0) & 0xfff;
+    uint16_t sh = (item->arg32 >> 12) & 0xfff;
+    printf("load block %d: tl=%d sl=%d sh=%d th=%d\n", tile_index, tl, sl, sh, th);
+    return 0;
+}
+
+int32_t op_load_tile(display_item *item) {
+    printf("load tile\n");
+    return 0;
+}
+
+int32_t op_set_tile(display_item *item) {
+    int tile_index = (item->arg32 >> 24) & 0x7;
+    tile *tile = &plugin_thread.rdp.tiles[tile_index];
+    tile->format = (item->arg8 >> 5) & 0x7;
+    tile->size = (item->arg8 >> 3) & 0x3;
+    tile->addr = item->arg16 & 0x1ff;
+    tile->mask_t = (item->arg32 >> 14) & 0xf;
+    tile->shift_t = (item->arg32 >> 10) & 0xf;
+    tile->mask_s = (item->arg32 >> 4) & 0xf;
+    tile->shift_s = (item->arg32 >> 0) & 0xf;
+    printf("set tile %d: format=%d size=%d addr=%x arg32=%08x mask_t=%d shift_t=%d mask_s=%d shift_s=%d\n",
+           tile_index,
+           tile->format,
+           tile->size,
+           tile->addr,
+           item->arg32,
+           tile->mask_t,
+           tile->shift_t,
+           tile->mask_s,
+           tile->shift_s);
     return 0;
 }
 
@@ -604,7 +647,7 @@ display_op_t OPS[256] = {
     op_end_display_list,                // b8
     op_noop,                            // b9
     op_noop,                            // ba
-    op_noop,                            // bb
+    op_texture,                         // bb
     op_move_word,                       // bc
     op_pop_matrix,                      // bd
     op_noop,                            // be
@@ -630,9 +673,9 @@ display_op_t OPS[256] = {
     op_noop,                            // f0
     op_noop,                            // f1
     op_noop,                            // f2
-    op_noop,                            // f3
-    op_noop,                            // f4
-    op_noop,                            // f5
+    op_load_block,                      // f3
+    op_load_tile,                       // f4
+    op_set_tile,                        // f5
     op_noop,                            // f6
     op_set_fill_color,                  // f7
     op_noop,                            // f8

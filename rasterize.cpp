@@ -184,25 +184,7 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
     *z_pixels = vorrq_s16(vandq_s16(z_values, vmvnq_u16(mask)), vandq_s16(z, mask));
 
 #ifdef TEXTURING
-    int16x8_t s = lerp_int16x8(triangle->t0.x,
-                               triangle->t1.x,
-                               triangle->t2.x,
-                               w1_lowf,
-                               w2_lowf,
-                               w1_highf,
-                               w2_highf);
-    int16x8_t t = lerp_int16x8(triangle->t0.x,
-                               triangle->t1.x,
-                               triangle->t2.x,
-                               w1_lowf,
-                               w2_lowf,
-                               w1_highf,
-                               w2_highf);
-    int16x8_t texture_width_mask = vdupq_n_s16(TEXTURE_WIDTH - 1);
-    int16x8_t texture_height_mask = vdupq_n_s16(TEXTURE_HEIGHT - 1);
-    s = vandq_s16(s, texture_width_mask);
-    t = vandq_s16(t, texture_height_mask);
-    int16x8_t texture_index = vaddq_s16(vmulq_n_s16(t, TEXTURE_WIDTH), s);
+    int16x8_t texture_index = vbicq_s16(z_values, vdupq_n_s16(0xff00));
 
     SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 0);
     SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 1);
@@ -229,6 +211,7 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
            (int)vgetq_lane_s16(g, 0),
            (int)vgetq_lane_s16(b, 0));
 #endif
+
     r = vshlq_n_s16(vshrq_n_s16(r, 3), 11);
     g = vshlq_n_s16(vshrq_n_s16(g, 2), 5);
     b = vshrq_n_s16(b, 3);
@@ -375,14 +358,26 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     int16_t min_x = min3i16(v0->x, v1->x, v2->x), min_y = min3i16(v0->y, v1->y, v2->y);
     int16_t max_x = max3i16(v0->x, v1->x, v2->x), max_y = max3i16(v0->y, v1->y, v2->y);
 
-#if WORKER_THREAD_COUNT > 1
-    min_y = (min_y & ~(WORKER_THREAD_COUNT - 1)) + (min_y > 0 ? -1 : 0) - render_state->worker_id;
-#endif
-
     min_x = maxi16(min_x, -FRAMEBUFFER_WIDTH / 2) & ~7;
     min_y = maxi16(min_y, -FRAMEBUFFER_HEIGHT / 2);
     max_x = mini16(max_x, FRAMEBUFFER_WIDTH / 2 - 1);
-    max_y = mini16(max_y, FRAMEBUFFER_HEIGHT / 2 - 1);
+    max_y = mini16(max_y, FRAMEBUFFER_HEIGHT / 2);
+
+#if WORKER_THREAD_COUNT > 1
+    //min_y = (min_y & ~(WORKER_THREAD_COUNT - 1)) + (min_y > 0 ? -1 : 0) - render_state->worker_id;
+    while (true) {
+        int framebuffer_y = (-min_y + FRAMEBUFFER_HEIGHT / 2);
+        if (framebuffer_y < 0 || framebuffer_y % WORKER_THREAD_COUNT == render_state->worker_id)
+            break;
+        min_y++;
+    }
+    while (true) {
+        int framebuffer_y = (-max_y + FRAMEBUFFER_HEIGHT / 2);
+        if (framebuffer_y < 0 || framebuffer_y % WORKER_THREAD_COUNT == render_state->worker_id)
+            break;
+        max_y--;
+    }
+#endif
 
     // FIXME(tachiweasel): Cheap clipping hack. Do this properly.
     if (v0->z <= -500.0 || v1->z <= -500.0 || v2->z <= -500.0)
@@ -499,7 +494,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
 #endif
 
     // FIXME(tachiweasel): Why do we go backwards? Bad on the cache!
-    int framebuffer_y = (-min_y / WORKER_THREAD_COUNT) + SUBFRAMEBUFFER_HEIGHT / 2;
+    int framebuffer_y = (-min_y + FRAMEBUFFER_HEIGHT / 2) / WORKER_THREAD_COUNT;
     int framebuffer_x = min_x + FRAMEBUFFER_WIDTH / 2;
     int framebuffer_index = framebuffer_y * FRAMEBUFFER_WIDTH + framebuffer_x;
     uint16_t *framebuffer_row_pixels =
@@ -529,34 +524,9 @@ void draw_triangle(render_state *render_state, const triangle *t) {
 #endif
             uint16x8_t mask = vcombine_u16(vmovn_u32(mask_low), vmovn_s32(mask_high));
 
-            bool draw = false;
-
-#define TEST(i) \
-    do { \
-        uint16_t hit = vgetq_lane_u16(mask, i); \
-        if (hit) { \
-            draw = true; \
-            render_state->pixels_drawn++; \
-        } \
-    } while(0)
-
-            TEST(0);
-#if 0
-            TEST(1);
-            TEST(2);
-            TEST(3);
-            TEST(4);
-            TEST(5);
-            TEST(6);
-            TEST(7);
-#endif
-
-            //COMPARE_GE_INT16X8(mask, w0 | w1 | w2, zero, dont_draw);
-
-            if (draw)
+            if (!is_zero(mask))
                 draw_pixels(render_state, framebuffer_pixels, z_pixels, t, z, r, g, b, mask);
 
-//dont_draw:
             w0_low += e12.x_step;
             w0_high += e12.x_step;
             w1_low += e20.x_step;
@@ -582,7 +552,7 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         g_varying.row += g_varying.y_step;
         b_varying.row += b_varying.y_step;
         framebuffer_row_pixels = &framebuffer_row_pixels[-FRAMEBUFFER_WIDTH];
-        z_row_pixels = &z_row_pixels[FRAMEBUFFER_WIDTH];
+        z_row_pixels = &z_row_pixels[-FRAMEBUFFER_WIDTH];
     }
 }
 

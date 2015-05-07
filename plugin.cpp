@@ -283,10 +283,10 @@ extern "C" void ProcessDList() {
 
     uint32_t end_time = SDL_GetTicks();
     uint32_t elapsed_time = end_time - start_time;
-    if (elapsed_time >= 28) {
+    if (elapsed_time >= 22) {
         printf("rendered frame in %dms -- %dms too slow\n",
                elapsed_time,
-               elapsed_time - 28);
+               elapsed_time - 22);
     } else {
         printf("rendered frame in %dms\n", elapsed_time);
     }
