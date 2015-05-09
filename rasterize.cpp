@@ -62,6 +62,8 @@ int16_t orient2d(const vec4i16 *a, const vec4i16 *b, const vec2i16 *c) {
 struct triangle_edge {
     int16x8_t x_step;
     int16x8_t y_step;
+    int32x4_t x_step_32;
+    int32x4_t y_step_32;
     int16x8_t normalized_x_step;
     int16x8_t normalized_y_step;
 };
@@ -179,14 +181,12 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
         t = vandq_n_s16(t, render_state->texture->height - 1);
         int16x8_t texture_index = vaddq_s16(vmulq_n_s16(t, render_state->texture->width), s);
 
-#if 0
         printf("tex coords=%d,%d %d,%d index=%d\n",
                vgetq_lane_s16(s, 0),
                vgetq_lane_s16(s, 4),
                vgetq_lane_s16(t, 0),
                vgetq_lane_s16(t, 4),
                vgetq_lane_s16(texture_index, 0));
-#endif
 
         SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 0);
         SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 1);
@@ -240,6 +240,8 @@ inline void setup_triangle_edge(triangle_edge *edge,
 
     edge->x_step = vdupq_n_s16(a * PIXEL_STEP_SIZE);
     edge->y_step = vdupq_n_s16(b * WORKER_THREAD_COUNT);
+    edge->x_step_32 = vdupq_n_s32(a * PIXEL_STEP_SIZE);
+    edge->y_step_32 = vdupq_n_s32(b * WORKER_THREAD_COUNT);
 
     int32x4_t x_low = vdupq_n_s32(origin->x), x_high = vdupq_n_s32(origin->x + 4);
     int32x4_t addend = { 0, 1, 2, 3 };
@@ -468,6 +470,7 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
                       e20.y_step,
                       e01.y_step);
     } else {
+#if 0
         for (int i = 0; i < 4; i++) {
             printf("normalized coordinates %d %d %d -> %d %d %d, wsum = %d\n",
                    w0_row_low[i], w1_row_low[i], w2_row_low[i],
@@ -480,6 +483,7 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
                    e12.y_step[0], e20.y_step[0], e01.y_step[0],
                    e12.normalized_y_step[0], e20.normalized_y_step[0], e01.normalized_y_step[0]);
         }
+#endif
         setup_varying(&s_varying,
                       triangle->t0.x,
                       triangle->t1.x,
@@ -517,6 +521,8 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
     int16_t *z_row_pixels = &render_state->depth[framebuffer_index];
 
     int32x4_t zero = vdupq_n_s32(0);
+
+    printf("min y = %d, max y = %d, min x = %d, max x = %d\n", min_y, max_y, min_x, max_x);
 
     for (int16_t y = min_y; y <= max_y; y += WORKER_THREAD_COUNT) {
         int32x4_t w0_low = w0_row_low, w0_high = w0_row_high;
@@ -562,12 +568,12 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
                                              mask);
             }
 
-            w0_low += e12.x_step;
-            w0_high += e12.x_step;
-            w1_low += e20.x_step;
-            w1_high += e20.x_step;
-            w2_low += e01.x_step;
-            w2_high += e01.x_step;
+            w0_low += e12.x_step_32;
+            w0_high += e12.x_step_32;
+            w1_low += e20.x_step_32;
+            w1_high += e20.x_step_32;
+            w2_low += e01.x_step_32;
+            w2_high += e01.x_step_32;
             z += z_varying.x_step;
 
             if (!texture_enabled) {
@@ -583,12 +589,12 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
             z_pixels = (int16x8_t *)((int16_t *)z_pixels + PIXEL_STEP_SIZE);
         }
 
-        w0_row_low += e12.y_step;
-        w0_row_high += e12.y_step;
-        w1_row_low += e20.y_step;
-        w1_row_high += e20.y_step;
-        w2_row_low += e01.y_step;
-        w2_row_high += e01.y_step;
+        w0_row_low += e12.y_step_32;
+        w0_row_high += e12.y_step_32;
+        w1_row_low += e20.y_step_32;
+        w1_row_high += e20.y_step_32;
+        w2_row_low += e01.y_step_32;
+        w2_row_high += e01.y_step_32;
         z_varying.row += z_varying.y_step;
 
         if (!texture_enabled) {

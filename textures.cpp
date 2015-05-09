@@ -36,15 +36,15 @@ swizzled_texture load_texture(uint8_t tile_index) {
 #endif
 
     uint16_t *dest = texture.pixels;
-    for (int32_t y = texture.height - 1; y >= 0; y--) {
+    for (int32_t y = 0; y < texture.height; y++) {
         for (uint32_t x = 0; x < texture.width; x += 2) {
             uint16_t pixel = origin[y * texture.width + x + 1];
-            dest[0] = (((pixel >> 1) & 0x1f) << 11) | (((pixel >> 6) & 0x1f) << 5) |
-                ((pixel >> 11) & 0x1f);
+            dest[0] = (((pixel >> 1) & 0x1f) << 1) | (((pixel >> 6) & 0x1f) << 6) |
+                (((pixel >> 11) & 0x1f) << 11);
 
             pixel = origin[y * texture.width + x];
-            dest[1] = (((pixel >> 1) & 0x1f) << 11) | (((pixel >> 6) & 0x1f) << 5) |
-                ((pixel >> 11) & 0x1f);
+            dest[1] = (((pixel >> 1) & 0x1f) << 1) | (((pixel >> 6) & 0x1f) << 6) |
+                (((pixel >> 11) & 0x1f) << 11);
 
             dest = &dest[2];
         }
