@@ -467,11 +467,13 @@ int32_t op_draw_triangle(display_item *item) {
         (item->arg32 >> 8) / 10,
         (item->arg32 >> 0) / 10
     };
+#if 0
     printf("draw triangle(%d,%d,%d) texture=%d\n",
            (int)indices[0],
            (int)indices[1],
            (int)indices[2],
            (int)plugin_thread.rdp.texture_enabled);
+#endif
     vertex transformed_vertices[3];
     for (int i = 0; i < 3; i++)
         transformed_vertices[i] = plugin_thread.rdp.vertices[indices[i]];
@@ -492,11 +494,13 @@ int32_t op_draw_triangle(display_item *item) {
     else
         plugin_thread.render_state.texture = NULL;
 
+#if 0
     printf("drawing triangle vertices "
            "%d,%d,%d (s %d, t %d) %d,%d,%d (s %d, t %d) %d,%d,%d (s %d, t %d)\n",
            t.v0.x, t.v0.y, t.v0.z, t.t0.x, t.t0.y,
            t.v1.x, t.v1.y, t.v1.z, t.t1.x, t.t1.y,
            t.v2.x, t.v2.y, t.v2.z, t.t2.x, t.t2.y);
+#endif
     draw_triangle(&plugin_thread.render_state, &t);
     return 0;
 }
@@ -530,16 +534,20 @@ int32_t op_texture(display_item *item) {
     plugin_thread.rdp.texture_enabled = item->arg16 & 1;
     plugin_thread.rdp.texture_tile = (item->arg16 >> 8) & 0x7;
     uint8_t level = (item->arg16 >> 11) & 0x7;
+#if 0
     printf("texture: tile=%d level=%d enabled=%d\n",
            (int)plugin_thread.rdp.texture_tile,
            (int)level,
            (int)plugin_thread.rdp.texture_enabled);
+#endif
     return 0;
 }
 
 int32_t op_move_word(display_item *item) {
     uint8_t type = item->arg16 & 0xff;
-    //printf("move word(%d) %08x %08x\n", (int)type, ((uint32_t *)item)[0], ((uint32_t *)item)[1]);
+#if 0
+    printf("move word(%d) %08x %08x\n", (int)type, ((uint32_t *)item)[0], ((uint32_t *)item)[1]);
+#endif
     switch (type) {
     case MOVE_WORD_MATRIX:
         {
@@ -564,18 +572,26 @@ int32_t op_move_word(display_item *item) {
 }
 
 int32_t op_load_block(display_item *item) {
+#if 0
+    // FIXME(tachiweasel): perf test hack
+    if (texture_is_active(&plugin_thread.rdp.swizzled_texture))
+        return 0;
+#endif
+
     uint8_t tile_index = (item->arg32 >> 24) & 0x7;
     plugin_thread.rdp.texture_upper_left_t = item->arg16 & 0xfff;
     plugin_thread.rdp.texture_upper_left_s =
         (uint16_t)(item->arg16 >> 12) | (uint16_t)(item->arg8 << 4);
     plugin_thread.rdp.texture_lower_right_t = (item->arg32 >> 0) & 0xfff;
     plugin_thread.rdp.texture_lower_right_s = (item->arg32 >> 12) & 0xfff;
+#if 0
     printf("load block %d: uls=%d ult=%d lrs=%d lrt=%d\n",
            (int)tile_index,
            plugin_thread.rdp.texture_upper_left_s,
            plugin_thread.rdp.texture_upper_left_t,
            plugin_thread.rdp.texture_lower_right_s,
            plugin_thread.rdp.texture_lower_right_t);
+#endif
 
     if (texture_is_active(&plugin_thread.rdp.swizzled_texture))
         destroy_texture(&plugin_thread.rdp.swizzled_texture);
@@ -598,6 +614,7 @@ int32_t op_set_tile(display_item *item) {
     tile->shift_t = (item->arg32 >> 10) & 0xf;
     tile->mask_s = (item->arg32 >> 4) & 0xf;
     tile->shift_s = (item->arg32 >> 0) & 0xf;
+#if 0
     printf("set tile %d: format=%d size=%d addr=%x arg32=%08x mask_t=%d shift_t=%d mask_s=%d shift_s=%d\n",
            tile_index,
            tile->format,
@@ -608,6 +625,7 @@ int32_t op_set_tile(display_item *item) {
            tile->shift_t,
            tile->mask_s,
            tile->shift_s);
+#endif
     return 0;
 }
 
@@ -634,7 +652,9 @@ int32_t op_set_env_color(display_item *item) {
 int32_t op_set_texture_image(display_item *item) {
     plugin_thread.rdp.texture_address = segment_address(item->arg32);
     //plugin_thread.rdp.texture_size = (item->arg8 >> 3) & 0x3;
+#if 0
     printf("set texture image: addr=%08x\n", segment_address(item->arg32));
+#endif
     return 0;
 }
 
@@ -751,4 +771,16 @@ void process_display_list(display_list *list) {
     interpret_display_list(list->data_ptr);
     //printf("end master DL processing\n");
 }
+
+void foo(void *render_state,
+         void *framebuffer_pixels,
+         void *z_pixels,
+         void *triangle,
+         int16x8_t z,
+         int16x8_t r,
+         int16x8_t g,
+         int16x8_t b,
+         int16x8_t s,
+         int16x8_t t,
+         uint16x8_t mask) {}
 

@@ -3,13 +3,14 @@
 #ifndef RASTERIZE_H
 #define RASTERIZE_H
 
+#include "simd.h"
 #include "textures.h"
 #include <stdint.h>
 
 #define FRAMEBUFFER_WIDTH           320
 #define FRAMEBUFFER_HEIGHT          240
-#define WORKER_THREAD_COUNT         1
-#define WORKER_THREAD_COUNT_STRING  "1.0"
+#define WORKER_THREAD_COUNT         4
+#define WORKER_THREAD_COUNT_STRING  "4.0"
 
 #define SUBFRAMEBUFFER_HEIGHT   ((FRAMEBUFFER_HEIGHT) / (WORKER_THREAD_COUNT))
 
@@ -63,6 +64,17 @@ struct render_state {
 
 void init_render_state(render_state *render_state, framebuffer *framebuffer, uint32_t worker_id);
 void draw_triangle(render_state *render_state, const triangle *t);
+void foo(void *render_state,
+         void *framebuffer_pixels,
+         void *z_pixels,
+         void *triangle,
+         int16x8_t z,
+         int16x8_t r,
+         int16x8_t g,
+         int16x8_t b,
+         int16x8_t s,
+         int16x8_t t,
+         uint16x8_t mask);
 
 #endif
 

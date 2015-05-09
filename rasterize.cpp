@@ -60,6 +60,10 @@ int16_t orient2d(const vec4i16 *a, const vec4i16 *b, const vec2i16 *c) {
 }
 
 struct triangle_edge {
+    int32_t a;
+    int32_t b;
+    int32_t c;
+    int32_t sum;
     int16x8_t x_step;
     int16x8_t y_step;
     int32x4_t x_step_32;
@@ -154,17 +158,17 @@ inline int16x8_t lerp_int16x8(int16_t x0,
     } while(0)
 
 template<bool texture_enabled>
-__attribute__((always_inline)) void draw_pixels(render_state *render_state,
-                                                uint16x8_t *framebuffer_pixels,
-                                                int16x8_t *z_pixels,
-                                                const triangle *triangle,
-                                                int16x8_t z,
-                                                int16x8_t r,
-                                                int16x8_t g,
-                                                int16x8_t b,
-                                                int16x8_t s,
-                                                int16x8_t t,
-                                                uint16x8_t mask) {
+__attribute__((noinline)) void draw_pixels(render_state *render_state,
+                                           uint16x8_t *framebuffer_pixels,
+                                           int16x8_t *z_pixels,
+                                           const triangle *triangle,
+                                           int16x8_t z,
+                                           int16x8_t r,
+                                           int16x8_t g,
+                                           int16x8_t b,
+                                           int16x8_t s,
+                                           int16x8_t t,
+                                           uint16x8_t mask) {
     uint16x8_t pixels = vdupq_n_u16(0);
 
     // Z-buffer.
@@ -177,16 +181,18 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
 
     // Map the texture.
     if (texture_enabled) {
-        s = vandq_n_s16(s, render_state->texture->width - 1);
-        t = vandq_n_s16(t, render_state->texture->height - 1);
+        s = vandq_s16(s, vdupq_n_s16(render_state->texture->width - 1));
+        t = vandq_s16(t, vdupq_n_s16(render_state->texture->height - 1));
         int16x8_t texture_index = vaddq_s16(vmulq_n_s16(t, render_state->texture->width), s);
 
+#if 0
         printf("tex coords=%d,%d %d,%d index=%d\n",
                vgetq_lane_s16(s, 0),
                vgetq_lane_s16(s, 4),
                vgetq_lane_s16(t, 0),
                vgetq_lane_s16(t, 4),
                vgetq_lane_s16(texture_index, 0));
+#endif
 
         SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 0);
         SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 1);
@@ -223,25 +229,27 @@ vec2i16 rand_vec2i16() {
     return result;
 }
 
+inline void init_barycentric_coordinates_for_triangle_edge(triangle_edge *edge,
+                                                           const vec4i16 *v0,
+                                                           const vec4i16 *v1) {
+    edge->a = v0->y - v1->y;
+    edge->b = v1->x - v0->x;
+    edge->c = (int32_t)v0->x * (int32_t)v1->y - (int32_t)v0->y * (int32_t)v1->x;
+}
+
 inline void setup_triangle_edge(triangle_edge *edge,
-                                const vec4i16 *v0,
-                                const vec4i16 *v1,
                                 const vec2i16 *origin,
                                 int32x4_t *row_low,
                                 int32x4_t *row_high) {
-    int32_t a = v0->y - v1->y;
-    int32_t b = v1->x - v0->x;
-    int32_t c = (int32_t)v0->x * (int32_t)v1->y - (int32_t)v0->y * (int32_t)v1->x;
-
 #if 0
     if (c > 0x7fff || c < -0x7fff)
         printf("*** warning, overflow!\n");
 #endif
 
-    edge->x_step = vdupq_n_s16(a * PIXEL_STEP_SIZE);
-    edge->y_step = vdupq_n_s16(b * WORKER_THREAD_COUNT);
-    edge->x_step_32 = vdupq_n_s32(a * PIXEL_STEP_SIZE);
-    edge->y_step_32 = vdupq_n_s32(b * WORKER_THREAD_COUNT);
+    edge->x_step = vdupq_n_s16(edge->a * PIXEL_STEP_SIZE);
+    edge->y_step = vdupq_n_s16(edge->b * WORKER_THREAD_COUNT);
+    edge->x_step_32 = vdupq_n_s32(edge->a * PIXEL_STEP_SIZE);
+    edge->y_step_32 = vdupq_n_s32(edge->b * WORKER_THREAD_COUNT);
 
     int32x4_t x_low = vdupq_n_s32(origin->x), x_high = vdupq_n_s32(origin->x + 4);
     int32x4_t addend = { 0, 1, 2, 3 };
@@ -249,10 +257,10 @@ inline void setup_triangle_edge(triangle_edge *edge,
     x_high += addend;
     int32x4_t y = vdupq_n_s32(origin->y);
 
-    int32x4_t y_factor = vmulq_n_s32(y, b);
-    int32x4_t c_addend = vdupq_n_s32(c);
-    *row_low = vaddq_s32(vaddq_s32(vmulq_n_s32(x_low, a), y_factor), c_addend);
-    *row_high = vaddq_s32(vaddq_s32(vmulq_n_s32(x_high, a), y_factor), c_addend);
+    int32x4_t y_factor = vmulq_n_s32(y, edge->b);
+    int32x4_t c_addend = vdupq_n_s32(edge->c);
+    *row_low = vaddq_s32(vaddq_s32(vmulq_n_s32(x_low, edge->a), y_factor), c_addend);
+    *row_high = vaddq_s32(vaddq_s32(vmulq_n_s32(x_high, edge->a), y_factor), c_addend);
 }
 
 inline int16x8_t normalize_triangle_edge(triangle_edge *edge,
@@ -350,6 +358,10 @@ inline void setup_varying(varying *varying,
 #endif
 }
 
+bool check_right_triangle(const vec4i16 *v0, const vec4i16 *v1, const vec4i16 *v2) {
+    return ((v0->y == v1->y && v0->x == v2->x) || (v0->x == v1->x && v0->y == v2->y));
+}
+
 template<bool texture_enabled>
 void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
     const vec4i16 *v0 = &triangle->v0, *v1 = &triangle->v1, *v2 = &triangle->v2;
@@ -385,6 +397,13 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
         return;
 #endif
 
+    // Check for sprites.
+    if (check_right_triangle(v0, v1, v2) || check_right_triangle(v0, v2, v1) ||
+            check_right_triangle(v1, v0, v2) || check_right_triangle(v1, v2, v0) ||
+            check_right_triangle(v2, v0, v1) || check_right_triangle(v2, v1, v0)) {
+        return;
+    }
+
 #if 0
     if (v0->x < -500.0 || v1->x < -500.0 || v2->x < -500.0)
         return;
@@ -399,16 +418,20 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
     render_state->triangles_drawn++;
 
     triangle_edge e01, e12, e20;
-    vec2i16 origin = { min_x, min_y };
-    int32x4_t w0_row_low, w0_row_high, w1_row_low, w1_row_high, w2_row_low, w2_row_high;
-    setup_triangle_edge(&e12, v1, v2, &origin, &w0_row_low, &w0_row_high);
-    setup_triangle_edge(&e20, v2, v0, &origin, &w1_row_low, &w1_row_high);
-    setup_triangle_edge(&e01, v0, v1, &origin, &w2_row_low, &w2_row_high);
-
-    int32_t wsum = vgetq_lane_s32(w0_row_low, 0) + vgetq_lane_s32(w1_row_low, 0) +
-        vgetq_lane_s32(w2_row_low, 0);
+    init_barycentric_coordinates_for_triangle_edge(&e12, v1, v2);
+    int32_t wsum = e12.a + e12.b + e12.c;
+    init_barycentric_coordinates_for_triangle_edge(&e20, v2, v0);
+    wsum += e20.a + e20.b + e20.c;
+    init_barycentric_coordinates_for_triangle_edge(&e01, v0, v1);
+    wsum += e01.a + e01.b + e01.c;
     if (wsum == 0)
         wsum = 1;
+
+    vec2i16 origin = { min_x, min_y };
+    int32x4_t w0_row_low, w0_row_high, w1_row_low, w1_row_high, w2_row_low, w2_row_high;
+    setup_triangle_edge(&e12, &origin, &w0_row_low, &w0_row_high);
+    setup_triangle_edge(&e20, &origin, &w1_row_low, &w1_row_high);
+    setup_triangle_edge(&e01, &origin, &w2_row_low, &w2_row_high);
 
     int16x8_t normalized_w0_row = normalize_triangle_edge(&e12, w0_row_low, w0_row_high, wsum);
     int16x8_t normalized_w1_row = normalize_triangle_edge(&e20, w1_row_low, w1_row_high, wsum);
@@ -504,12 +527,14 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
                       e01.normalized_x_step,
                       e20.normalized_y_step,
                       e01.normalized_y_step);
+#if 0
         printf("t0.y=%d t1.y=%d t2.y=%d\n", triangle->t0.y, triangle->t1.y, triangle->t2.y);
         printf("texture s xstep=%d ystep=%d, texture t xstep=%d ystep=%d\n",
                s_varying.x_step[0],
                s_varying.y_step[0],
                t_varying.x_step[0],
                t_varying.y_step[0]);
+#endif
     }
 
     // FIXME(tachiweasel): Why do we go backwards? Bad on the cache!
@@ -522,7 +547,9 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
 
     int32x4_t zero = vdupq_n_s32(0);
 
+#if 0
     printf("min y = %d, max y = %d, min x = %d, max x = %d\n", min_y, max_y, min_x, max_x);
+#endif
 
     for (int16_t y = min_y; y <= max_y; y += WORKER_THREAD_COUNT) {
         int32x4_t w0_low = w0_row_low, w0_high = w0_row_high;
@@ -612,10 +639,12 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
 }
 
 void draw_triangle(render_state *render_state, const triangle *triangle) {
-    if (render_state->texture == NULL)
+    //if (render_state->texture == NULL)
         draw_triangle_impl<false>(render_state, triangle);
+#if 0
     else
         draw_triangle_impl<true>(render_state, triangle);
+#endif
 }
 
 void *worker_thread(void *cookie) {

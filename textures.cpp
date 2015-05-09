@@ -5,6 +5,7 @@
 #include "textures.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 swizzled_texture load_texture(uint8_t tile_index) {
     swizzled_texture texture;
