@@ -552,9 +552,12 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
 #endif
 
     for (int16_t y = min_y; y <= max_y; y += WORKER_THREAD_COUNT) {
-        int32x4_t w0_low = w0_row_low, w0_high = w0_row_high;
-        int32x4_t w1_low = w1_row_low, w1_high = w1_row_high;
-        int32x4_t w2_low = w2_row_low, w2_high = w2_row_high;
+        //int32x4_t w0_low = w0_row_low, w0_high = w0_row_high;
+        //int32x4_t w1_low = w1_row_low, w1_high = w1_row_high;
+        //int32x4_t w2_low = w2_row_low, w2_high = w2_row_high;
+        int16x8_t w0 = normalized_w0_row;
+        int16x8_t w1 = normalized_w1_row;
+        int16x8_t w2 = normalized_w2_row;
         int16x8_t z = z_varying.row;
         int16x8_t r, g, b, s, t;
         if (!texture_enabled) {
@@ -570,16 +573,13 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
         int16x8_t *z_pixels = (int16x8_t *)z_row_pixels;
         for (int16_t x = min_x; x <= max_x; x += PIXEL_STEP_SIZE) {
             // FIXME(tachiweasel): I think this is slow.
-            uint32x4_t mask_low = vcgeq_s32(vorrq_s32(w0_low, vorrq_s32(w1_low, w2_low)), zero);
-            uint32x4_t mask_high =
-                vcgeq_s32(vorrq_s32(w0_high, vorrq_s32(w1_high, w2_high)), zero);
+            uint16x8_t mask = vcgeq_s16(vorrq_s16(w0, vorrq_s32(w1, w2)), zero);
 #if 0
             int16x8_t w0 = vcombine_s16(vmovn_s32(w0_low), vmovn_s32(w0_high));
             int16x8_t w1 = vcombine_s16(vmovn_s32(w1_low), vmovn_s32(w1_high));
             int16x8_t w2 = vcombine_s16(vmovn_s32(w2_low), vmovn_s32(w2_high));
             uint16x8_t mask = vcgeq_s16(vorrq_s16(vorrq_s16(w0, w1), w2), zero);
 #endif
-            uint16x8_t mask = vcombine_u16(vmovn_u32(mask_low), vmovn_s32(mask_high));
 
             if (!is_zero(mask)) {
                 draw_pixels<texture_enabled>(render_state,
@@ -595,12 +595,9 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
                                              mask);
             }
 
-            w0_low += e12.x_step_32;
-            w0_high += e12.x_step_32;
-            w1_low += e20.x_step_32;
-            w1_high += e20.x_step_32;
-            w2_low += e01.x_step_32;
-            w2_high += e01.x_step_32;
+            w0 += e12.normalized_x_step;
+            w1 += e20.normalized_x_step;
+            w2 += e01.normalized_x_step;
             z += z_varying.x_step;
 
             if (!texture_enabled) {
@@ -616,12 +613,9 @@ void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
             z_pixels = (int16x8_t *)((int16_t *)z_pixels + PIXEL_STEP_SIZE);
         }
 
-        w0_row_low += e12.y_step_32;
-        w0_row_high += e12.y_step_32;
-        w1_row_low += e20.y_step_32;
-        w1_row_high += e20.y_step_32;
-        w2_row_low += e01.y_step_32;
-        w2_row_high += e01.y_step_32;
+        normalized_w0_row += e12.normalized_y_step;
+        normalized_w1_row += e20.normalized_y_step;
+        normalized_w2_row += e01.normalized_y_step;
         z_varying.row += z_varying.y_step;
 
         if (!texture_enabled) {
