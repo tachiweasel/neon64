@@ -7,9 +7,9 @@ PIC?=-fPIC
 
 TARGET=mupen64plus-video-neon64$(SO)
 
-SRC=displaylist.cpp plugin.cpp rasterize.cpp
+SRC=displaylist.cpp plugin.cpp rasterize.cpp textures.cpp
 
-$(TARGET):	$(SRC) displaylist.h plugin.h rasterize.h rdp.h
+$(TARGET):	$(SRC) displaylist.h plugin.h rasterize.h rdp.h textures.h
 	$(CXX) $(CXXFLAGS) -o $@ $(SHARED) $(PIC) $(LIBS) $(SRC)
 
 rasterize:	rasterize.cpp

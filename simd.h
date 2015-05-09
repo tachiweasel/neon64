@@ -203,6 +203,10 @@ inline float32x4_t vmulq_n_f32(float32x4_t vector, float value) {
     return vector * vdupq_n_f32(value);
 }
 
+inline int16x8_t vmulq_n_s16(int16x8_t vector, int16_t value) {
+    return vector * vdupq_n_s16(value);
+}
+
 inline int32x4_t vmulq_n_s32(int32x4_t vector, int32_t value) {
     return vector * vdupq_n_s32(value);
 }

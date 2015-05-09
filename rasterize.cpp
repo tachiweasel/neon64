@@ -60,8 +60,10 @@ int16_t orient2d(const vec4i16 *a, const vec4i16 *b, const vec2i16 *c) {
 }
 
 struct triangle_edge {
-    int32x4_t x_step;
-    int32x4_t y_step;
+    int16x8_t x_step;
+    int16x8_t y_step;
+    int16x8_t normalized_x_step;
+    int16x8_t normalized_y_step;
 };
 
 struct varying {
@@ -141,10 +143,15 @@ inline int16x8_t lerp_int16x8(int16_t x0,
     return vaddq_s16(vaddq_s16(vdupq_n_s16(x0), x1_x0), x2_x0);
 }
 
-int oneify(int value) {
-    return value == 0 ? 1 : value;
-}
+#define Z_BUFFER_COUNT(i) \
+    do { \
+        uint16_t hit = vgetq_lane_u16(mask, i); \
+        if (hit) { \
+            render_state->z_buffered_pixels_drawn++; \
+        } \
+    } while(0)
 
+template<bool texture_enabled>
 __attribute__((always_inline)) void draw_pixels(render_state *render_state,
                                                 uint16x8_t *framebuffer_pixels,
                                                 int16x8_t *z_pixels,
@@ -153,6 +160,8 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
                                                 int16x8_t r,
                                                 int16x8_t g,
                                                 int16x8_t b,
+                                                int16x8_t s,
+                                                int16x8_t t,
                                                 uint16x8_t mask) {
     uint16x8_t pixels = vdupq_n_u16(0);
 
@@ -162,65 +171,47 @@ __attribute__((always_inline)) void draw_pixels(render_state *render_state,
     if (is_zero(mask))
         return;
 
-#define Z_BUFFER_COUNT(i) \
-    do { \
-        uint16_t hit = vgetq_lane_u16(mask, i); \
-        if (hit) { \
-            render_state->z_buffered_pixels_drawn++; \
-        } \
-    } while(0)
-
-#if 0
-    Z_BUFFER_COUNT(0);
-    Z_BUFFER_COUNT(1);
-    Z_BUFFER_COUNT(2);
-    Z_BUFFER_COUNT(3);
-    Z_BUFFER_COUNT(4);
-    Z_BUFFER_COUNT(5);
-    Z_BUFFER_COUNT(6);
-    Z_BUFFER_COUNT(7);
-#endif
-
     *z_pixels = vorrq_s16(vandq_s16(z_values, vmvnq_u16(mask)), vandq_s16(z, mask));
 
-#ifdef TEXTURING
-    int16x8_t texture_index = vbicq_s16(z_values, vdupq_n_s16(0xff00));
-
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 0);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 1);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 2);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 3);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 4);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 5);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 6);
-    SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 7);
-#else
-
-    mask = vmvnq_s16(vceqq_s16(mask, vdupq_n_u16(0)));
-
-#ifdef COLORING
-
-    // FIXME(tachiweasel): Maybe remove the `vandq_n_s16` below if we get better accuracy.
-    r = vandq_s16(r, vdupq_n_s16(0xff));
-    g = vandq_s16(g, vdupq_n_s16(0xff));
-    b = vandq_s16(b, vdupq_n_s16(0xff));
+    // Map the texture.
+    if (texture_enabled) {
+        s = vandq_n_s16(s, render_state->texture->width - 1);
+        t = vandq_n_s16(t, render_state->texture->height - 1);
+        int16x8_t texture_index = vaddq_s16(vmulq_n_s16(t, render_state->texture->width), s);
 
 #if 0
-    printf("r=%d g=%d b=%d\n",
-           (int)vgetq_lane_s16(r, 0),
-           (int)vgetq_lane_s16(g, 0),
-           (int)vgetq_lane_s16(b, 0));
+        printf("tex coords=%d,%d %d,%d index=%d\n",
+               vgetq_lane_s16(s, 0),
+               vgetq_lane_s16(s, 4),
+               vgetq_lane_s16(t, 0),
+               vgetq_lane_s16(t, 4),
+               vgetq_lane_s16(texture_index, 0));
 #endif
 
-    r = vshlq_n_s16(vshrq_n_s16(r, 3), 11);
-    g = vshlq_n_s16(vshrq_n_s16(g, 2), 5);
-    b = vshrq_n_s16(b, 3);
-    pixels = vandq_s16(mask, vorrq_s16(vorrq_s16(r, g), b));
-#else
-    pixels = mask;
-#endif
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 0);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 1);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 2);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 3);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 4);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 5);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 6);
+        SAMPLE_TEXTURE(pixels, mask, render_state, texture_index, 7);
+    } else {
+        mask = vmvnq_s16(vceqq_s16(mask, vdupq_n_u16(0)));
+    }
 
-#endif
+    // Shade.
+    if (!texture_enabled) {
+        // FIXME(tachiweasel): Maybe remove the `vandq_n_s16` below if we get better accuracy.
+        r = vandq_s16(r, vdupq_n_s16(0xff));
+        g = vandq_s16(g, vdupq_n_s16(0xff));
+        b = vandq_s16(b, vdupq_n_s16(0xff));
+
+        r = vshlq_n_s16(vshrq_n_s16(r, 3), 11);
+        g = vshlq_n_s16(vshrq_n_s16(g, 2), 5);
+        b = vshrq_n_s16(b, 3);
+        pixels = vandq_s16(mask, vorrq_s16(vorrq_s16(r, g), b));
+    }
 
     *framebuffer_pixels = vorrq_u16(vandq_u16(*framebuffer_pixels, vmvnq_u16(mask)), pixels);
 }
@@ -247,8 +238,8 @@ inline void setup_triangle_edge(triangle_edge *edge,
         printf("*** warning, overflow!\n");
 #endif
 
-    edge->x_step = vdupq_n_s32(a * PIXEL_STEP_SIZE);
-    edge->y_step = vdupq_n_s32(b * WORKER_THREAD_COUNT);
+    edge->x_step = vdupq_n_s16(a * PIXEL_STEP_SIZE);
+    edge->y_step = vdupq_n_s16(b * WORKER_THREAD_COUNT);
 
     int32x4_t x_low = vdupq_n_s32(origin->x), x_high = vdupq_n_s32(origin->x + 4);
     int32x4_t addend = { 0, 1, 2, 3 };
@@ -270,20 +261,24 @@ inline int16x8_t normalize_triangle_edge(triangle_edge *edge,
 
     float32x4_t wlowf = vcvtq_f32_s32(w_low);
     float32x4_t whighf = vcvtq_f32_s32(w_high);
-    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 32768.0), wrecip_sumf);
-    whighf = vmulq_f32(vmulq_n_f32(whighf, 32768.0), wrecip_sumf);
+    wlowf = vmulq_f32(vmulq_n_f32(wlowf, 16384.0), wrecip_sumf);
+    whighf = vmulq_f32(vmulq_n_f32(whighf, 16384.0), wrecip_sumf);
     int16x8_t normalized_w = vcombine_s16(vmovn_s32(vcvtq_s32_f32(wlowf)),
                                           vmovn_s32(vcvtq_s32_f32(whighf)));
 
     float32x4_t x_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->x_step)));
     float32x4_t x_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->x_step)));
-    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 32768.0), wrecip_sumf);
-    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 32768.0), wrecip_sumf);
+    x_step_lowf = vmulq_f32(vmulq_n_f32(x_step_lowf, 16384.0), wrecip_sumf);
+    x_step_highf = vmulq_f32(vmulq_n_f32(x_step_highf, 16384.0), wrecip_sumf);
+    edge->normalized_x_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(x_step_lowf)),
+                                           vmovn_s32(vcvtq_s32_f32(x_step_highf)));
 
     float32x4_t y_step_lowf = vcvtq_f32_s32(vmovl_s16(vget_low_s16(edge->y_step)));
     float32x4_t y_step_highf = vcvtq_f32_s32(vmovl_s16(vget_high_s16(edge->y_step)));
-    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 32768.0), wrecip_sumf);
-    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 32768.0), wrecip_sumf);
+    y_step_lowf = vmulq_f32(vmulq_n_f32(y_step_lowf, 16384.0), wrecip_sumf);
+    y_step_highf = vmulq_f32(vmulq_n_f32(y_step_highf, 16384.0), wrecip_sumf);
+    edge->normalized_y_step = vcombine_s16(vmovn_s32(vcvtq_s32_f32(y_step_lowf)),
+                                           vmovn_s32(vcvtq_s32_f32(y_step_highf)));
 
     return normalized_w;
 }
@@ -302,10 +297,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_row_high = vmovl_s16(vget_high_s16(w1_row));
     int32x4_t w2_row_low = vmovl_s16(vget_low_s16(w2_row));
     int32x4_t w2_row_high = vmovl_s16(vget_high_s16(w2_row));
-    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 15);
-    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 15);
-    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 15);
-    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 15);
+    w1_row_low = vshrq_n_s32(vmulq_n_s32(w1_row_low, x1 - x0), 14);
+    w1_row_high = vshrq_n_s32(vmulq_n_s32(w1_row_high, x1 - x0), 14);
+    w2_row_low = vshrq_n_s32(vmulq_n_s32(w2_row_low, x2 - x0), 14);
+    w2_row_high = vshrq_n_s32(vmulq_n_s32(w2_row_high, x2 - x0), 14);
     int32x4_t row_low = vaddq_s32(vdupq_n_s32(x0), vaddq_s32(w1_row_low, w2_row_low));
     int32x4_t row_high = vaddq_s32(vdupq_n_s32(x0), vaddq_s32(w1_row_high, w2_row_high));
     varying->row = vcombine_s16(vmovn_s32(row_low), vmovn_s32(row_high));
@@ -320,10 +315,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_x_step_high = vmovl_s16(vget_high_s16(w1_x_step));
     int32x4_t w2_x_step_low = vmovl_s16(vget_low_s16(w2_x_step));
     int32x4_t w2_x_step_high = vmovl_s16(vget_high_s16(w2_x_step));
-    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 15);
-    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 15);
-    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 15);
-    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 15);
+    w1_x_step_low = vshrq_n_s32(vmulq_n_s32(w1_x_step_low, x1 - x0), 14);
+    w1_x_step_high = vshrq_n_s32(vmulq_n_s32(w1_x_step_high, x1 - x0), 14);
+    w2_x_step_low = vshrq_n_s32(vmulq_n_s32(w2_x_step_low, x2 - x0), 14);
+    w2_x_step_high = vshrq_n_s32(vmulq_n_s32(w2_x_step_high, x2 - x0), 14);
     int32x4_t x_step_low = vaddq_s32(w1_x_step_low, w2_x_step_low);
     int32x4_t x_step_high = vaddq_s32(w1_x_step_high, w2_x_step_high);
     varying->x_step = vcombine_s16(vmovn_s32(x_step_low), vmovn_s32(x_step_high));
@@ -338,10 +333,10 @@ inline void setup_varying(varying *varying,
     int32x4_t w1_y_step_high = vmovl_s16(vget_high_s16(w1_y_step));
     int32x4_t w2_y_step_low = vmovl_s16(vget_low_s16(w2_y_step));
     int32x4_t w2_y_step_high = vmovl_s16(vget_high_s16(w2_y_step));
-    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 15);
-    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 15);
-    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 15);
-    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 15);
+    w1_y_step_low = vshrq_n_s32(vmulq_n_s32(w1_y_step_low, x1 - x0), 14);
+    w1_y_step_high = vshrq_n_s32(vmulq_n_s32(w1_y_step_high, x1 - x0), 14);
+    w2_y_step_low = vshrq_n_s32(vmulq_n_s32(w2_y_step_low, x2 - x0), 14);
+    w2_y_step_high = vshrq_n_s32(vmulq_n_s32(w2_y_step_high, x2 - x0), 14);
     int32x4_t y_step_low = vaddq_s32(w1_y_step_low, w2_y_step_low);
     int32x4_t y_step_high = vaddq_s32(w1_y_step_high, w2_y_step_high);
     varying->y_step = vcombine_s16(vmovn_s32(y_step_low), vmovn_s32(y_step_high));
@@ -353,8 +348,9 @@ inline void setup_varying(varying *varying,
 #endif
 }
 
-void draw_triangle(render_state *render_state, const triangle *t) {
-    const vec4i16 *v0 = &t->v0, *v1 = &t->v1, *v2 = &t->v2;
+template<bool texture_enabled>
+void draw_triangle_impl(render_state *render_state, const triangle *triangle) {
+    const vec4i16 *v0 = &triangle->v0, *v1 = &triangle->v1, *v2 = &triangle->v2;
     int16_t min_x = min3i16(v0->x, v1->x, v2->x), min_y = min3i16(v0->y, v1->y, v2->y);
     int16_t max_x = max3i16(v0->x, v1->x, v2->x), max_y = max3i16(v0->y, v1->y, v2->y);
 
@@ -380,10 +376,13 @@ void draw_triangle(render_state *render_state, const triangle *t) {
 #endif
 
     // FIXME(tachiweasel): Cheap clipping hack. Do this properly.
+#if 0
     if (v0->z <= -500.0 || v1->z <= -500.0 || v2->z <= -500.0)
         return;
     if (v0->z == 0.0 || v1->z == 0.0 || v2->z == 0.0)
         return;
+#endif
+
 #if 0
     if (v0->x < -500.0 || v1->x < -500.0 || v2->x < -500.0)
         return;
@@ -409,15 +408,15 @@ void draw_triangle(render_state *render_state, const triangle *t) {
     if (wsum == 0)
         wsum = 1;
 
-    normalize_triangle_edge(&e12, w0_row_low, w0_row_high, wsum);
+    int16x8_t normalized_w0_row = normalize_triangle_edge(&e12, w0_row_low, w0_row_high, wsum);
     int16x8_t normalized_w1_row = normalize_triangle_edge(&e20, w1_row_low, w1_row_high, wsum);
     int16x8_t normalized_w2_row = normalize_triangle_edge(&e01, w2_row_low, w2_row_high, wsum);
 
     varying z_varying;
     setup_varying(&z_varying,
-                  t->v0.z,
-                  t->v1.z,
-                  t->v2.z,
+                  triangle->v0.z,
+                  triangle->v1.z,
+                  triangle->v2.z,
                   normalized_w1_row,
                   normalized_w2_row,
                   e20.x_step,
@@ -436,62 +435,78 @@ void draw_triangle(render_state *render_state, const triangle *t) {
             (int)z_varying.y_step[0]);
 #endif
 
-    varying r_varying;
-    setup_varying(&r_varying,
-                  t->c0.r,
-                  t->c1.r,
-                  t->c2.r,
-                  normalized_w1_row,
-                  normalized_w2_row,
-                  e20.x_step,
-                  e01.x_step,
-                  e20.y_step,
-                  e01.y_step);
-
-#if 0
-    printf("r varying c0.r=%d c1.r=%d c2.r=%d step=(%d,%d)\n",
-           (int)t->c0.r,
-           (int)t->c1.r,
-           (int)t->c2.r,
-           (int)vgetq_lane_s16(r_varying.x_step, 0),
-           (int)vgetq_lane_s16(r_varying.y_step, 0));
-#endif
-
-    varying g_varying;
-    setup_varying(&g_varying,
-                  t->c0.g,
-                  t->c1.g,
-                  t->c2.g,
-                  normalized_w1_row,
-                  normalized_w2_row,
-                  e20.x_step,
-                  e01.x_step,
-                  e20.y_step,
-                  e01.y_step);
-
-    varying b_varying;
-    setup_varying(&b_varying,
-                  t->c0.b,
-                  t->c1.b,
-                  t->c2.b,
-                  normalized_w1_row,
-                  normalized_w2_row,
-                  e20.x_step,
-                  e01.x_step,
-                  e20.y_step,
-                  e01.y_step);
-
-#if 0
-    r_varying.row = vdupq_n_s16(t->c0.r);
-    g_varying.row = vdupq_n_s16(t->c0.g);
-    b_varying.row = vdupq_n_s16(t->c0.b);
-    r_varying.x_step = vdupq_n_s16(0);
-    r_varying.y_step = vdupq_n_s16(0);
-    g_varying.x_step = vdupq_n_s16(0);
-    g_varying.y_step = vdupq_n_s16(0);
-    b_varying.x_step = vdupq_n_s16(0);
-    b_varying.y_step = vdupq_n_s16(0);
-#endif
+    varying r_varying, g_varying, b_varying, s_varying, t_varying;
+    if (!texture_enabled) {
+        setup_varying(&r_varying,
+                      triangle->c0.r,
+                      triangle->c1.r,
+                      triangle->c2.r,
+                      normalized_w1_row,
+                      normalized_w2_row,
+                      e20.x_step,
+                      e01.x_step,
+                      e20.y_step,
+                      e01.y_step);
+        setup_varying(&g_varying,
+                      triangle->c0.g,
+                      triangle->c1.g,
+                      triangle->c2.g,
+                      normalized_w1_row,
+                      normalized_w2_row,
+                      e20.x_step,
+                      e01.x_step,
+                      e20.y_step,
+                      e01.y_step);
+        setup_varying(&b_varying,
+                      triangle->c0.b,
+                      triangle->c1.b,
+                      triangle->c2.b,
+                      normalized_w1_row,
+                      normalized_w2_row,
+                      e20.x_step,
+                      e01.x_step,
+                      e20.y_step,
+                      e01.y_step);
+    } else {
+        for (int i = 0; i < 4; i++) {
+            printf("normalized coordinates %d %d %d -> %d %d %d, wsum = %d\n",
+                   w0_row_low[i], w1_row_low[i], w2_row_low[i],
+                   normalized_w0_row[i], normalized_w1_row[i], normalized_w2_row[i],
+                   wsum);
+            printf("x step %d %d %d -> %d %d %d\n",
+                   e12.x_step[0], e20.x_step[0], e01.x_step[0],
+                   e12.normalized_x_step[0], e20.normalized_x_step[0], e01.normalized_x_step[0]);
+            printf("y step %d %d %d -> %d %d %d\n",
+                   e12.y_step[0], e20.y_step[0], e01.y_step[0],
+                   e12.normalized_y_step[0], e20.normalized_y_step[0], e01.normalized_y_step[0]);
+        }
+        setup_varying(&s_varying,
+                      triangle->t0.x,
+                      triangle->t1.x,
+                      triangle->t2.x,
+                      normalized_w1_row,
+                      normalized_w2_row,
+                      e20.normalized_x_step,
+                      e01.normalized_x_step,
+                      e20.normalized_y_step,
+                      e01.normalized_y_step);
+        setup_varying(&t_varying,
+                      triangle->t0.y,
+                      triangle->t1.y,
+                      triangle->t2.y,
+                      normalized_w1_row,
+                      normalized_w2_row,
+                      e20.normalized_x_step,
+                      e01.normalized_x_step,
+                      e20.normalized_y_step,
+                      e01.normalized_y_step);
+        printf("t0.y=%d t1.y=%d t2.y=%d\n", triangle->t0.y, triangle->t1.y, triangle->t2.y);
+        printf("texture s xstep=%d ystep=%d, texture t xstep=%d ystep=%d\n",
+               s_varying.x_step[0],
+               s_varying.y_step[0],
+               t_varying.x_step[0],
+               t_varying.y_step[0]);
+    }
 
     // FIXME(tachiweasel): Why do we go backwards? Bad on the cache!
     int framebuffer_y = (-min_y + FRAMEBUFFER_HEIGHT / 2) / WORKER_THREAD_COUNT;
@@ -508,7 +523,16 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         int32x4_t w1_low = w1_row_low, w1_high = w1_row_high;
         int32x4_t w2_low = w2_row_low, w2_high = w2_row_high;
         int16x8_t z = z_varying.row;
-        int16x8_t r = r_varying.row, g = g_varying.row, b = b_varying.row;
+        int16x8_t r, g, b, s, t;
+        if (!texture_enabled) {
+            r = r_varying.row;
+            g = g_varying.row;
+            b = b_varying.row;
+        } else {
+            s = s_varying.row;
+            t = t_varying.row;
+        }
+
         uint16x8_t *framebuffer_pixels = (uint16x8_t *)framebuffer_row_pixels;
         int16x8_t *z_pixels = (int16x8_t *)z_row_pixels;
         for (int16_t x = min_x; x <= max_x; x += PIXEL_STEP_SIZE) {
@@ -524,8 +548,19 @@ void draw_triangle(render_state *render_state, const triangle *t) {
 #endif
             uint16x8_t mask = vcombine_u16(vmovn_u32(mask_low), vmovn_s32(mask_high));
 
-            if (!is_zero(mask))
-                draw_pixels(render_state, framebuffer_pixels, z_pixels, t, z, r, g, b, mask);
+            if (!is_zero(mask)) {
+                draw_pixels<texture_enabled>(render_state,
+                                             framebuffer_pixels,
+                                             z_pixels,
+                                             triangle,
+                                             z,
+                                             r,
+                                             g,
+                                             b,
+                                             s,
+                                             t,
+                                             mask);
+            }
 
             w0_low += e12.x_step;
             w0_high += e12.x_step;
@@ -534,9 +569,16 @@ void draw_triangle(render_state *render_state, const triangle *t) {
             w2_low += e01.x_step;
             w2_high += e01.x_step;
             z += z_varying.x_step;
-            r += r_varying.x_step;
-            g += g_varying.x_step;
-            b += b_varying.x_step;
+
+            if (!texture_enabled) {
+                r += r_varying.x_step;
+                g += g_varying.x_step;
+                b += b_varying.x_step;
+            } else {
+                s += s_varying.x_step;
+                t += t_varying.x_step;
+            }
+
             framebuffer_pixels = (uint16x8_t *)((uint16_t *)framebuffer_pixels + PIXEL_STEP_SIZE);
             z_pixels = (int16x8_t *)((int16_t *)z_pixels + PIXEL_STEP_SIZE);
         }
@@ -548,12 +590,26 @@ void draw_triangle(render_state *render_state, const triangle *t) {
         w2_row_low += e01.y_step;
         w2_row_high += e01.y_step;
         z_varying.row += z_varying.y_step;
-        r_varying.row += r_varying.y_step;
-        g_varying.row += g_varying.y_step;
-        b_varying.row += b_varying.y_step;
+
+        if (!texture_enabled) {
+            r_varying.row += r_varying.y_step;
+            g_varying.row += g_varying.y_step;
+            b_varying.row += b_varying.y_step;
+        } else {
+            s_varying.row += s_varying.y_step;
+            t_varying.row += t_varying.y_step;
+        }
+
         framebuffer_row_pixels = &framebuffer_row_pixels[-FRAMEBUFFER_WIDTH];
         z_row_pixels = &z_row_pixels[-FRAMEBUFFER_WIDTH];
     }
+}
+
+void draw_triangle(render_state *render_state, const triangle *triangle) {
+    if (render_state->texture == NULL)
+        draw_triangle_impl<false>(render_state, triangle);
+    else
+        draw_triangle_impl<true>(render_state, triangle);
 }
 
 void *worker_thread(void *cookie) {
@@ -586,9 +642,7 @@ void init_render_state(render_state *render_state, framebuffer *framebuffer, uin
     for (int j = 0; j < FRAMEBUFFER_WIDTH * (SUBFRAMEBUFFER_HEIGHT + 1); j++)
         render_state->depth[j] = 0x7fff;
 
-    render_state->texture = new texture;
-    for (int j = 0; j < TEXTURE_WIDTH * TEXTURE_HEIGHT; j++)
-        render_state->texture->pixels[j] = rand();
+    render_state->texture = NULL;
 
     render_state->worker_id = worker_id;
 }

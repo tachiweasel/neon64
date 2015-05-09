@@ -3,12 +3,11 @@
 #ifndef RASTERIZE_H
 #define RASTERIZE_H
 
+#include "textures.h"
 #include <stdint.h>
 
 #define FRAMEBUFFER_WIDTH           320
 #define FRAMEBUFFER_HEIGHT          240
-#define TEXTURE_WIDTH               64
-#define TEXTURE_HEIGHT              64
 #define WORKER_THREAD_COUNT         1
 #define WORKER_THREAD_COUNT_STRING  "1.0"
 
@@ -52,14 +51,10 @@ struct framebuffer {
     uint16_t *pixels;
 };
 
-struct texture {
-    uint16_t pixels[TEXTURE_WIDTH * TEXTURE_HEIGHT];
-};
-
 struct render_state {
     framebuffer framebuffer;
     int16_t *depth;
-    texture *texture;
+    swizzled_texture *texture;
     uint32_t worker_id;
     uint32_t pixels_drawn;
     uint32_t z_buffered_pixels_drawn;

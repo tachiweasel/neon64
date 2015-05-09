@@ -5,6 +5,7 @@
 #include "rasterize.h"
 #include "rdp.h"
 #include "simd.h"
+#include "textures.h"
 #include <stdio.h>
 
 #define MOVE_WORD_MATRIX    0
@@ -273,6 +274,9 @@ void transform_and_light_vertex(vertex *vertex) {
 #endif
 
     vertex->position = vmovn_s32(vcvtq_s32_f32(position));
+
+    vertex->s >>= 5;
+    vertex->t >>= 5;
 }
 
 vec4i16 transformed_vertex_position(vertex *vertex) {
@@ -463,7 +467,11 @@ int32_t op_draw_triangle(display_item *item) {
         (item->arg32 >> 8) / 10,
         (item->arg32 >> 0) / 10
     };
-    //printf("draw triangle(%d,%d,%d)\n", (int)indices[0], (int)indices[1], (int)indices[2]);
+    printf("draw triangle(%d,%d,%d) texture=%d\n",
+           (int)indices[0],
+           (int)indices[1],
+           (int)indices[2],
+           (int)plugin_thread.rdp.texture_enabled);
     vertex transformed_vertices[3];
     for (int i = 0; i < 3; i++)
         transformed_vertices[i] = plugin_thread.rdp.vertices[indices[i]];
@@ -474,13 +482,21 @@ int32_t op_draw_triangle(display_item *item) {
         transformed_vertex_color(&transformed_vertices[0]),
         transformed_vertex_color(&transformed_vertices[1]),
         transformed_vertex_color(&transformed_vertices[2]),
+        { transformed_vertices[0].s, transformed_vertices[0].t },
+        { transformed_vertices[1].s, transformed_vertices[1].t },
+        { transformed_vertices[2].s, transformed_vertices[2].t },
     };
-#if 0
-    printf("drawing triangle vertices %d,%d,%d %d,%d,%d %d,%d,%d\n",
-           t.v0.x, t.v0.y, t.v0.z,
-           t.v1.x, t.v1.y, t.v1.z,
-           t.v2.x, t.v2.y, t.v2.z);
-#endif
+
+    if (plugin_thread.rdp.texture_enabled)
+        plugin_thread.render_state.texture = &plugin_thread.rdp.swizzled_texture;
+    else
+        plugin_thread.render_state.texture = NULL;
+
+    printf("drawing triangle vertices "
+           "%d,%d,%d (s %d, t %d) %d,%d,%d (s %d, t %d) %d,%d,%d (s %d, t %d)\n",
+           t.v0.x, t.v0.y, t.v0.z, t.t0.x, t.t0.y,
+           t.v1.x, t.v1.y, t.v1.z, t.t1.x, t.t1.y,
+           t.v2.x, t.v2.y, t.v2.z, t.t2.x, t.t2.y);
     draw_triangle(&plugin_thread.render_state, &t);
     return 0;
 }
@@ -511,7 +527,13 @@ int32_t op_pop_matrix(display_item *item) {
 }
 
 int32_t op_texture(display_item *item) {
-    printf("texture\n");
+    plugin_thread.rdp.texture_enabled = item->arg16 & 1;
+    plugin_thread.rdp.texture_tile = (item->arg16 >> 8) & 0x7;
+    uint8_t level = (item->arg16 >> 11) & 0x7;
+    printf("texture: tile=%d level=%d enabled=%d\n",
+           (int)plugin_thread.rdp.texture_tile,
+           (int)level,
+           (int)plugin_thread.rdp.texture_enabled);
     return 0;
 }
 
@@ -542,12 +564,22 @@ int32_t op_move_word(display_item *item) {
 }
 
 int32_t op_load_block(display_item *item) {
-    uint32_t tile_index = (item->arg32 >> 5) & 0x7;
-    uint16_t tl = item->arg16 & 0xfff;
-    uint16_t sl = (uint16_t)(item->arg16 >> 12) | (uint16_t)(item->arg8 << 4);
-    uint16_t th = (item->arg32 >> 0) & 0xfff;
-    uint16_t sh = (item->arg32 >> 12) & 0xfff;
-    printf("load block %d: tl=%d sl=%d sh=%d th=%d\n", tile_index, tl, sl, sh, th);
+    uint8_t tile_index = (item->arg32 >> 24) & 0x7;
+    plugin_thread.rdp.texture_upper_left_t = item->arg16 & 0xfff;
+    plugin_thread.rdp.texture_upper_left_s =
+        (uint16_t)(item->arg16 >> 12) | (uint16_t)(item->arg8 << 4);
+    plugin_thread.rdp.texture_lower_right_t = (item->arg32 >> 0) & 0xfff;
+    plugin_thread.rdp.texture_lower_right_s = (item->arg32 >> 12) & 0xfff;
+    printf("load block %d: uls=%d ult=%d lrs=%d lrt=%d\n",
+           (int)tile_index,
+           plugin_thread.rdp.texture_upper_left_s,
+           plugin_thread.rdp.texture_upper_left_t,
+           plugin_thread.rdp.texture_lower_right_s,
+           plugin_thread.rdp.texture_lower_right_t);
+
+    if (texture_is_active(&plugin_thread.rdp.swizzled_texture))
+        destroy_texture(&plugin_thread.rdp.swizzled_texture);
+    plugin_thread.rdp.swizzled_texture = load_texture(tile_index);
     return 0;
 }
 
@@ -596,6 +628,13 @@ int32_t op_set_prim_color(display_item *item) {
 
 int32_t op_set_env_color(display_item *item) {
     //printf("set env color\n");
+    return 0;
+}
+
+int32_t op_set_texture_image(display_item *item) {
+    plugin_thread.rdp.texture_address = segment_address(item->arg32);
+    //plugin_thread.rdp.texture_size = (item->arg8 >> 3) & 0x3;
+    printf("set texture image: addr=%08x\n", segment_address(item->arg32));
     return 0;
 }
 
@@ -683,7 +722,7 @@ display_op_t OPS[256] = {
     op_set_prim_color,                  // fa
     op_set_env_color,                   // fb
     op_noop,                            // fc
-    op_noop,                            // fd
+    op_set_texture_image,               // fd
     op_noop,                            // fe
     op_noop,                            // ff
 };
