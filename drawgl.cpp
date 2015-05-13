@@ -4,6 +4,9 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 
+#define DATA_TEXTURE_WIDTH  16
+#define DATA_TEXTURE_HEIGHT 1024
+
 #define GL(cmd) ({ \
     auto _result = (cmd); \
     GLenum _err = glGetError(); \
@@ -33,6 +36,8 @@ struct gl_state {
     GLuint position_buffer;
     GLuint vertex_index_buffer;
     GLuint data_t_buffer;
+    GLuint data_texture;
+    uint32_t *data_texture_buffer;
 };
 
 const GLchar *VERTEX_SHADER =
@@ -60,13 +65,10 @@ const GLchar *FRAGMENT_SHADER =
     "varying float vDataT;\n"
     "uniform sampler2D uData;\n"
     "void main(void) {\n"
-#if 0
-    "   vec4 color0 = texture2D(uData, vec2(0.0 / 16.0, vDataT));"
-    "   vec4 color1 = texture2D(uData, vec2(1.0 / 16.0, vDataT));"
-    "   vec4 color2 = texture2D(uData, vec2(2.0 / 16.0, vDataT));"
-    "   gl_FragColor = vLambda[0] * color0 + vLambda[1] * color1 + vLambda[2] * color2;"
-#endif
-    "   gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+    "   vec4 color0 = texture2D(uData, vec2(0.0 / 16.0, vDataT));\n"
+    "   vec4 color1 = texture2D(uData, vec2(1.0 / 16.0, vDataT));\n"
+    "   vec4 color2 = texture2D(uData, vec2(2.0 / 16.0, vDataT));\n"
+    "   gl_FragColor = vLambda[0] * color0 + vLambda[1] * color1 + vLambda[2] * color2;\n"
     "}\n";
 
 void init_buffers(gl_state *gl_state) {
@@ -88,6 +90,34 @@ void init_buffers(gl_state *gl_state) {
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->data_t_buffer));
     float data_t_values[3] = { 0.0, 0.0, 0.0 };
     DO_GL(glBufferData(GL_ARRAY_BUFFER, 3 * sizeof(float), data_t_values, GL_STATIC_DRAW));
+}
+
+void init_textures(gl_state *gl_state) {
+    DO_GL(glEnable(GL_TEXTURE_2D));
+
+    gl_state->data_texture_buffer =
+        (uint32_t *)malloc(DATA_TEXTURE_WIDTH * DATA_TEXTURE_HEIGHT * sizeof(uint32_t));
+    for (int y = 0; y < DATA_TEXTURE_HEIGHT; y++) {
+        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 0] = 0xff0000ff;
+        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 1] = 0xff00ff00;
+        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 2] = 0xffff0000;
+    }
+
+    DO_GL(glGenTextures(1, &gl_state->data_texture));
+    DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->data_texture));
+    DO_GL(glTexImage2D(GL_TEXTURE_2D,
+                       0,
+                       GL_RGBA,
+                       DATA_TEXTURE_WIDTH,
+                       DATA_TEXTURE_HEIGHT,
+                       0,
+                       GL_RGBA,
+                       GL_UNSIGNED_BYTE,
+                       gl_state->data_texture_buffer));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 }
 
 void check_shader(GLint shader) {
@@ -140,6 +170,8 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glVertexAttribPointer(gl_state->vertex_index_attribute, 1, GL_FLOAT, GL_FALSE, 0, 0));
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->data_t_buffer));
     DO_GL(glVertexAttribPointer(gl_state->data_t_attribute, 1, GL_FLOAT, GL_FALSE, 0, 0));
+    DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->data_texture));
+    DO_GL(glUniform1i(gl_state->data_uniform, 0));
 
     DO_GL(glDrawArrays(GL_TRIANGLES, 0, 3));
 }
@@ -156,6 +188,7 @@ int main() {
 
     gl_state gl_state;
     init_buffers(&gl_state);
+    init_textures(&gl_state);
     init_shaders(&gl_state);
     draw_scene(&gl_state);
 
