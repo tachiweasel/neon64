@@ -10,15 +10,15 @@
 swizzled_texture load_texture(uint8_t tile_index) {
     swizzled_texture texture;
 
-    tile *tile = &plugin_thread.rdp.tiles[tile_index];
-    uint32_t bytes = (plugin_thread.rdp.texture_lower_right_s + 1) << tile->size >> 1;
-    uint32_t line = (2047 + plugin_thread.rdp.texture_lower_right_t) /
-        plugin_thread.rdp.texture_lower_right_t;
+    tile *tile = &plugin.rdp.tiles[tile_index];
+    uint32_t bytes = (plugin.rdp.texture_lower_right_s + 1) << tile->size >> 1;
+    uint32_t line = (2047 + plugin.rdp.texture_lower_right_t) /
+        plugin.rdp.texture_lower_right_t;
     texture.width = line << 3;
     texture.height = bytes / texture.width;
     texture.width /= 2;
     
-    uint16_t *origin = (uint16_t *)&plugin.memory.rdram[plugin_thread.rdp.texture_address];
+    uint16_t *origin = (uint16_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
 
     texture.pixels = (uint16_t *)malloc(texture.width * texture.height * sizeof(uint16_t));
 

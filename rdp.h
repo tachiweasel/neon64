@@ -3,7 +3,7 @@
 #ifndef RDP_H
 #define RDP_H
 
-#include "rasterize.h"
+#include "drawgl.h"
 #include "simd.h"
 #include "textures.h"
 #include <stdint.h>
@@ -31,7 +31,7 @@ struct registers {
 };
 
 struct vertex {
-    int16x4_t position;
+    vfloat32x4_t position;
 
     int16_t s;
     int16_t t;

@@ -2,7 +2,6 @@
 
 #include "displaylist.h"
 #include "plugin.h"
-#include "rasterize.h"
 #include "rdp.h"
 #include "simd.h"
 #include "textures.h"
@@ -24,6 +23,20 @@
 
 typedef int32_t (*display_op_t)(display_item *item);
 
+struct vec4u8 {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+};
+
+struct vec4i16 {
+    int16_t x;
+    int16_t y;
+    int16_t z;
+    int16_t w;
+};
+
 struct rdp_vertex {
     int16_t y;
     int16_t x;
@@ -38,7 +51,7 @@ struct rdp_vertex {
 
 // Converts a segmented address to a flat RDRAM address.
 uint32_t segment_address(uint32_t address) {
-    return plugin_thread.rdp.segments[(address >> 24) & 0xf] + (address & 0x00ffffff);
+    return plugin.rdp.segments[(address >> 24) & 0xf] + (address & 0x00ffffff);
 }
 
 #define LOAD_MATRIX_ELEMENT(result, i, j) \
@@ -181,38 +194,30 @@ matrix4x4f32 multiply_matrix4x4f32(matrix4x4f32 a, matrix4x4f32 b) {
     return result;
 }
 
-float32x4_t multiply_matrix4x4f32_float32x4(matrix4x4f32 *a, float32x4_t x) {
-    float32x4_t ax = vdupq_n_f32(0.0);
-    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 0) * vgetq_lane_f32(x, 0) +
-                         vgetq_lane_f32(a->m[1], 0) * vgetq_lane_f32(x, 1) +
-                         vgetq_lane_f32(a->m[2], 0) * vgetq_lane_f32(x, 2) +
-                         vgetq_lane_f32(a->m[3], 0) * vgetq_lane_f32(x, 3)),
-                        ax,
-                        0);
-    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 1) * vgetq_lane_f32(x, 0) +
-                         vgetq_lane_f32(a->m[1], 1) * vgetq_lane_f32(x, 1) +
-                         vgetq_lane_f32(a->m[2], 1) * vgetq_lane_f32(x, 2) +
-                         vgetq_lane_f32(a->m[3], 1) * vgetq_lane_f32(x, 3)),
-                        ax,
-                        1);
-    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 2) * vgetq_lane_f32(x, 0) +
-                         vgetq_lane_f32(a->m[1], 2) * vgetq_lane_f32(x, 1) +
-                         vgetq_lane_f32(a->m[2], 2) * vgetq_lane_f32(x, 2) +
-                         vgetq_lane_f32(a->m[3], 2) * vgetq_lane_f32(x, 3)),
-                        ax,
-                        2);
-    ax = vsetq_lane_f32((vgetq_lane_f32(a->m[0], 3) * vgetq_lane_f32(x, 0) +
-                         vgetq_lane_f32(a->m[1], 3) * vgetq_lane_f32(x, 1) +
-                         vgetq_lane_f32(a->m[2], 3) * vgetq_lane_f32(x, 2) +
-                         vgetq_lane_f32(a->m[3], 3) * vgetq_lane_f32(x, 3)),
-                        ax,
-                        3);
+vfloat32x4_t multiply_matrix4x4f32_float32x4(matrix4x4f32 *a, vfloat32x4_t x) {
+    vfloat32x4_t ax = { 0.0, 0.0, 0.0, 0.0 };
+    ax.x = vgetq_lane_f32(a->m[0], 0) * x.x +
+           vgetq_lane_f32(a->m[1], 0) * x.y +
+           vgetq_lane_f32(a->m[2], 0) * x.z +
+           vgetq_lane_f32(a->m[3], 0) * x.w;
+    ax.y = vgetq_lane_f32(a->m[0], 1) * x.x +
+           vgetq_lane_f32(a->m[1], 1) * x.y +
+           vgetq_lane_f32(a->m[2], 1) * x.z +
+           vgetq_lane_f32(a->m[3], 1) * x.w;
+    ax.z = vgetq_lane_f32(a->m[0], 2) * x.x +
+           vgetq_lane_f32(a->m[1], 2) * x.y +
+           vgetq_lane_f32(a->m[2], 2) * x.z +
+           vgetq_lane_f32(a->m[3], 2) * x.w;
+    ax.w = vgetq_lane_f32(a->m[0], 3) * x.x +
+           vgetq_lane_f32(a->m[1], 3) * x.y +
+           vgetq_lane_f32(a->m[2], 3) * x.z +
+           vgetq_lane_f32(a->m[3], 3) * x.w;
     return ax;
 }
 
 void transform_and_light_vertex(vertex *vertex) {
-    matrix4x4f32 *projection = &plugin_thread.rdp.projection[plugin_thread.rdp.projection_index];
-    matrix4x4f32 *modelview = &plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index];
+    matrix4x4f32 *projection = &plugin.rdp.projection[plugin.rdp.projection_index];
+    matrix4x4f32 *modelview = &plugin.rdp.modelview[plugin.rdp.modelview_index];
     //matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
 #if 0
     printf("matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
@@ -234,7 +239,7 @@ void transform_and_light_vertex(vertex *vertex) {
            vgetq_lane_f32(tmp.m[3], 3));
 #endif
 
-    float32x4_t position = vcvtq_f32_s32(vmovl_s16(vertex->position));
+    vfloat32x4_t position = vertex->position;
 #if 0
     printf("vertex shading: %f,%f,%f,%f -> ",
            vgetq_lane_f32(position, 0),
@@ -255,15 +260,11 @@ void transform_and_light_vertex(vertex *vertex) {
 #endif
 
     // Perform perspective division.
-    float w = (float)vgetq_lane_f32(position, 3);
-    position = vsetq_lane_f32(vgetq_lane_f32(position, 0) / w, position, 0);
-    position = vsetq_lane_f32(vgetq_lane_f32(position, 1) / w, position, 1);
-    position = vsetq_lane_f32(1.0 / w, position, 3);
-
-    position = vsetq_lane_f32(vgetq_lane_f32(position, 0) * (FRAMEBUFFER_WIDTH / 2), position, 0);
-    position = vsetq_lane_f32(vgetq_lane_f32(position, 1) * (FRAMEBUFFER_HEIGHT / 2), position, 1);
-    //printf("vertex z: %f\n", vgetq_lane_f32(position, 2));
-    position = vsetq_lane_f32(vgetq_lane_f32(position, 2), position, 2);
+    float w = (float)position.w;
+    position.x = position.x / w;
+    position.y = position.y / w;
+    position.z = position.z / w;
+    position.w = 1.0;
 
 #if 0
     printf("vertex: %f,%f,%f,%f\n",
@@ -273,30 +274,18 @@ void transform_and_light_vertex(vertex *vertex) {
            vgetq_lane_f32(position, 3));
 #endif
 
-    vertex->position = vmovn_s32(vcvtq_s32_f32(position));
+    vertex->position = position;
 
     vertex->s >>= 5;
     vertex->t >>= 5;
 }
 
-vec4i16 transformed_vertex_position(vertex *vertex) {
-    vec4i16 result = {
-        vget_lane_s16(vertex->position, 0),
-        vget_lane_s16(vertex->position, 1),
-        vget_lane_s16(vertex->position, 2),
-        vget_lane_s16(vertex->position, 3),
-    };
-    return result;
+vfloat32x4_t transformed_vertex_position(vertex *vertex) {
+    return vertex->position;
 }
 
-vec4u8 transformed_vertex_color(vertex *vertex) {
-    vec4u8 result = {
-        vertex->rgba >> 24,
-        vertex->rgba >> 16,
-        vertex->rgba >> 8,
-        vertex->rgba,
-    };
-    return result;
+uint32_t transformed_vertex_color(vertex *vertex) {
+    return vertex->rgba;
 }
 
 int32_t op_noop(display_item *item) {
@@ -340,15 +329,15 @@ int32_t op_set_matrix(display_item *item) {
 #endif
 
     if (projection) {
-        if (plugin_thread.rdp.projection_index < 15 && push) {
-            plugin_thread.rdp.projection[plugin_thread.rdp.projection_index + 1] =
-                plugin_thread.rdp.projection[plugin_thread.rdp.projection_index];
-            plugin_thread.rdp.projection_index++;
+        if (plugin.rdp.projection_index < 15 && push) {
+            plugin.rdp.projection[plugin.rdp.projection_index + 1] =
+                plugin.rdp.projection[plugin.rdp.projection_index];
+            plugin.rdp.projection_index++;
         }
         if (!set) {
             new_matrix = multiply_matrix4x4f32(
                     new_matrix,
-                    plugin_thread.rdp.projection[plugin_thread.rdp.projection_index]);
+                    plugin.rdp.projection[plugin.rdp.projection_index]);
 #if 0
             printf("set projection post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
                    vgetq_lane_f32(new_matrix.m[0], 0),
@@ -369,17 +358,17 @@ int32_t op_set_matrix(display_item *item) {
                    vgetq_lane_f32(new_matrix.m[3], 3));
 #endif
         }
-        plugin_thread.rdp.projection[plugin_thread.rdp.projection_index] = new_matrix;
+        plugin.rdp.projection[plugin.rdp.projection_index] = new_matrix;
     } else {
-        if (plugin_thread.rdp.modelview_index < 15 && push) {
-            plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index + 1] =
-                plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index];
-            plugin_thread.rdp.modelview_index++;
+        if (plugin.rdp.modelview_index < 15 && push) {
+            plugin.rdp.modelview[plugin.rdp.modelview_index + 1] =
+                plugin.rdp.modelview[plugin.rdp.modelview_index];
+            plugin.rdp.modelview_index++;
         }
         if (!set) {
             new_matrix = multiply_matrix4x4f32(
                     new_matrix,
-                    plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index]);
+                    plugin.rdp.modelview[plugin.rdp.modelview_index]);
 #if 0
             printf("set modelview post-mult:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
                    vgetq_lane_f32(new_matrix.m[0], 0),
@@ -400,7 +389,7 @@ int32_t op_set_matrix(display_item *item) {
                    vgetq_lane_f32(new_matrix.m[3], 3));
 #endif
         }
-        plugin_thread.rdp.modelview[plugin_thread.rdp.modelview_index] = new_matrix;
+        plugin.rdp.modelview[plugin.rdp.modelview_index] = new_matrix;
     }
 
     return 0;
@@ -429,20 +418,20 @@ int32_t op_vertex(display_item *item) {
     struct rdp_vertex *base = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
     for (uint8_t i = 0; i < count; i++) {
         struct rdp_vertex *rdp_vertex = &base[i];
-        vertex *vertex = &plugin_thread.rdp.vertices[i];
+        vertex *vertex = &plugin.rdp.vertices[i];
 
-        int16x4_t position = vdup_n_s16(0);
-        position = vset_lane_s16(rdp_vertex->x, position, 0);
-        position = vset_lane_s16(rdp_vertex->y, position, 1);
-        position = vset_lane_s16(rdp_vertex->z, position, 2);
-        position = vset_lane_s16(1, position, 3);
+        vfloat32x4_t position;
+        position.x = rdp_vertex->x;
+        position.y = rdp_vertex->y;
+        position.z = rdp_vertex->z;
+        position.w = 1.0;
         vertex->position = position;
 
         vertex->t = rdp_vertex->t;
         vertex->s = rdp_vertex->s;
         vertex->rgba = rdp_vertex->rgba;
 
-        transform_and_light_vertex(&plugin_thread.rdp.vertices[i]);
+        transform_and_light_vertex(&plugin.rdp.vertices[i]);
     }
     return 0;
 }
@@ -472,27 +461,26 @@ int32_t op_draw_triangle(display_item *item) {
            (int)indices[0],
            (int)indices[1],
            (int)indices[2],
-           (int)plugin_thread.rdp.texture_enabled);
+           (int)plugin.rdp.texture_enabled);
 #endif
     vertex transformed_vertices[3];
     for (int i = 0; i < 3; i++)
-        transformed_vertices[i] = plugin_thread.rdp.vertices[indices[i]];
-    triangle t = {
-        transformed_vertex_position(&transformed_vertices[0]),
-        transformed_vertex_position(&transformed_vertices[1]),
-        transformed_vertex_position(&transformed_vertices[2]),
-        transformed_vertex_color(&transformed_vertices[0]),
-        transformed_vertex_color(&transformed_vertices[1]),
-        transformed_vertex_color(&transformed_vertices[2]),
-        { transformed_vertices[0].s, transformed_vertices[0].t },
-        { transformed_vertices[1].s, transformed_vertices[1].t },
-        { transformed_vertices[2].s, transformed_vertices[2].t },
-    };
+        transformed_vertices[i] = plugin.rdp.vertices[indices[i]];
 
-    if (plugin_thread.rdp.texture_enabled)
-        plugin_thread.render_state.texture = &plugin_thread.rdp.swizzled_texture;
+    triangle triangle;
+    triangle.v0.position = transformed_vertex_position(&transformed_vertices[0]);
+    triangle.v0.shade = transformed_vertex_color(&transformed_vertices[0]);
+    triangle.v1.position = transformed_vertex_position(&transformed_vertices[1]);
+    triangle.v1.shade = transformed_vertex_color(&transformed_vertices[1]);
+    triangle.v2.position = transformed_vertex_position(&transformed_vertices[2]);
+    triangle.v2.shade = transformed_vertex_color(&transformed_vertices[2]);
+
+#if 0
+    if (plugin.rdp.texture_enabled)
+        plugin.render_state.texture = &plugin.rdp.swizzled_texture;
     else
-        plugin_thread.render_state.texture = NULL;
+        plugin.render_state.texture = NULL;
+#endif
 
 #if 0
     printf("drawing triangle vertices "
@@ -501,7 +489,7 @@ int32_t op_draw_triangle(display_item *item) {
            t.v1.x, t.v1.y, t.v1.z, t.t1.x, t.t1.y,
            t.v2.x, t.v2.y, t.v2.z, t.t2.x, t.t2.y);
 #endif
-    draw_triangle(&plugin_thread.render_state, &t);
+    add_triangle(&plugin.gl_state, &triangle);
     return 0;
 }
 
@@ -516,29 +504,29 @@ int32_t op_draw_flipped_texture_rectangle(display_item *item) {
 int32_t op_pop_matrix(display_item *item) {
     bool projection = item->arg32 & 1;
     if (projection) {
-        if (plugin_thread.rdp.projection_index > 0)
-            plugin_thread.rdp.projection_index--;
+        if (plugin.rdp.projection_index > 0)
+            plugin.rdp.projection_index--;
     } else {
-        if (plugin_thread.rdp.modelview_index > 0)
-            plugin_thread.rdp.modelview_index--;
+        if (plugin.rdp.modelview_index > 0)
+            plugin.rdp.modelview_index--;
     }
 #if 0
     printf("pop matrix(%s) = %d\n",
            projection ? "PROJECTION" : "MODELVIEW",
-           projection ? plugin_thread.rdp.projection_index : plugin_thread.rdp.modelview_index);
+           projection ? plugin.rdp.projection_index : plugin.rdp.modelview_index);
 #endif
     return 0;
 }
 
 int32_t op_texture(display_item *item) {
-    plugin_thread.rdp.texture_enabled = item->arg16 & 1;
-    plugin_thread.rdp.texture_tile = (item->arg16 >> 8) & 0x7;
+    plugin.rdp.texture_enabled = item->arg16 & 1;
+    plugin.rdp.texture_tile = (item->arg16 >> 8) & 0x7;
     uint8_t level = (item->arg16 >> 11) & 0x7;
 #if 0
     printf("texture: tile=%d level=%d enabled=%d\n",
-           (int)plugin_thread.rdp.texture_tile,
+           (int)plugin.rdp.texture_tile,
            (int)level,
-           (int)plugin_thread.rdp.texture_enabled);
+           (int)plugin.rdp.texture_enabled);
 #endif
     return 0;
 }
@@ -563,7 +551,7 @@ int32_t op_move_word(display_item *item) {
         {
             uint32_t segment = (item->arg16 >> 10) & 0xf;
             uint32_t base = item->arg32 & 0x00ffffff;
-            plugin_thread.rdp.segments[segment] = base;
+            plugin.rdp.segments[segment] = base;
             // printf("segment[%d] = %08x\n", segment, base);
             break;
         }
@@ -574,28 +562,28 @@ int32_t op_move_word(display_item *item) {
 int32_t op_load_block(display_item *item) {
 #if 0
     // FIXME(tachiweasel): perf test hack
-    if (texture_is_active(&plugin_thread.rdp.swizzled_texture))
+    if (texture_is_active(&plugin.rdp.swizzled_texture))
         return 0;
 #endif
 
     uint8_t tile_index = (item->arg32 >> 24) & 0x7;
-    plugin_thread.rdp.texture_upper_left_t = item->arg16 & 0xfff;
-    plugin_thread.rdp.texture_upper_left_s =
+    plugin.rdp.texture_upper_left_t = item->arg16 & 0xfff;
+    plugin.rdp.texture_upper_left_s =
         (uint16_t)(item->arg16 >> 12) | (uint16_t)(item->arg8 << 4);
-    plugin_thread.rdp.texture_lower_right_t = (item->arg32 >> 0) & 0xfff;
-    plugin_thread.rdp.texture_lower_right_s = (item->arg32 >> 12) & 0xfff;
+    plugin.rdp.texture_lower_right_t = (item->arg32 >> 0) & 0xfff;
+    plugin.rdp.texture_lower_right_s = (item->arg32 >> 12) & 0xfff;
 #if 0
     printf("load block %d: uls=%d ult=%d lrs=%d lrt=%d\n",
            (int)tile_index,
-           plugin_thread.rdp.texture_upper_left_s,
-           plugin_thread.rdp.texture_upper_left_t,
-           plugin_thread.rdp.texture_lower_right_s,
-           plugin_thread.rdp.texture_lower_right_t);
+           plugin.rdp.texture_upper_left_s,
+           plugin.rdp.texture_upper_left_t,
+           plugin.rdp.texture_lower_right_s,
+           plugin.rdp.texture_lower_right_t);
 #endif
 
-    if (texture_is_active(&plugin_thread.rdp.swizzled_texture))
-        destroy_texture(&plugin_thread.rdp.swizzled_texture);
-    plugin_thread.rdp.swizzled_texture = load_texture(tile_index);
+    if (texture_is_active(&plugin.rdp.swizzled_texture))
+        destroy_texture(&plugin.rdp.swizzled_texture);
+    plugin.rdp.swizzled_texture = load_texture(tile_index);
     return 0;
 }
 
@@ -606,7 +594,7 @@ int32_t op_load_tile(display_item *item) {
 
 int32_t op_set_tile(display_item *item) {
     int tile_index = (item->arg32 >> 24) & 0x7;
-    tile *tile = &plugin_thread.rdp.tiles[tile_index];
+    tile *tile = &plugin.rdp.tiles[tile_index];
     tile->format = (item->arg8 >> 5) & 0x7;
     tile->size = (item->arg8 >> 3) & 0x3;
     tile->addr = item->arg16 & 0x1ff;
@@ -650,8 +638,8 @@ int32_t op_set_env_color(display_item *item) {
 }
 
 int32_t op_set_texture_image(display_item *item) {
-    plugin_thread.rdp.texture_address = segment_address(item->arg32);
-    //plugin_thread.rdp.texture_size = (item->arg8 >> 3) & 0x3;
+    plugin.rdp.texture_address = segment_address(item->arg32);
+    //plugin.rdp.texture_size = (item->arg8 >> 3) & 0x3;
 #if 0
     printf("set texture image: addr=%08x\n", segment_address(item->arg32));
 #endif
