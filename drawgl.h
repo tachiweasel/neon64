@@ -14,6 +14,29 @@
 #define FRAMEBUFFER_WIDTH 320
 #define FRAMEBUFFER_HEIGHT 240
 
+#if 0
+#define GL(cmd) ({ \
+    auto _result = (cmd); \
+    GLenum _err = glGetError(); \
+    if (_err != GL_NO_ERROR) { \
+        fprintf(stderr, "GL error at %s:%d: %08x\n", __FILE__, __LINE__, _err); \
+    } \
+    _result; \
+})
+
+#define DO_GL(cmd) \
+    do { \
+        (cmd); \
+        GLenum _err = glGetError(); \
+        if (_err != GL_NO_ERROR) { \
+            fprintf(stderr, "GL error at %s:%d: %08x\n", __FILE__, __LINE__, _err); \
+        } \
+    } while(0)
+#else
+#define GL(cmd) (cmd)
+#define DO_GL(cmd) (cmd)
+#endif
+
 struct triangle;
 
 struct gl_state {
@@ -54,6 +77,7 @@ struct triangle {
     triangle_vertex v2;
 };
 
+void check_shader(GLint shader);
 void init_gl_state(gl_state *gl_state);
 void add_triangle(gl_state *gl_state, triangle *triangle);
 void reset_gl_state(gl_state *gl_state);

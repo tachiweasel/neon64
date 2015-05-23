@@ -285,7 +285,10 @@ vfloat32x4_t transformed_vertex_position(vertex *vertex) {
 }
 
 uint32_t transformed_vertex_color(vertex *vertex) {
-    return vertex->rgba;
+    return (((vertex->rgba >> 0) & 0xff) << 24) |
+           (((vertex->rgba >> 8) & 0xff) << 16) |
+           (((vertex->rgba >> 16) & 0xff) << 8) |
+           (((vertex->rgba >> 24) & 0xff) << 0);
 }
 
 int32_t op_noop(display_item *item) {
@@ -452,9 +455,9 @@ int32_t op_call_display_list(display_item *item) {
 
 int32_t op_draw_triangle(display_item *item) {
     uint8_t indices[3] = {
-        (item->arg32 >> 16) / 10,
-        (item->arg32 >> 8) / 10,
-        (item->arg32 >> 0) / 10
+        (uint8_t)((item->arg32 >> 16) / 10),
+        (uint8_t)((item->arg32 >> 8) / 10),
+        (uint8_t)((item->arg32 >> 0) / 10)
     };
 #if 0
     printf("draw triangle(%d,%d,%d) texture=%d\n",

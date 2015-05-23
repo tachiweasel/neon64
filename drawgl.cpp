@@ -10,29 +10,6 @@
 #define TEXTURE_HEIGHT 1024
 #define MAX_TRIANGLES 2048
 
-#if 0
-#define GL(cmd) ({ \
-    auto _result = (cmd); \
-    GLenum _err = glGetError(); \
-    if (_err != GL_NO_ERROR) { \
-        fprintf(stderr, "GL error at %s:%d: %08x\n", __FILE__, __LINE__, _err); \
-    } \
-    _result; \
-})
-
-#define DO_GL(cmd) \
-    do { \
-        (cmd); \
-        GLenum _err = glGetError(); \
-        if (_err != GL_NO_ERROR) { \
-            fprintf(stderr, "GL error at %s:%d: %08x\n", __FILE__, __LINE__, _err); \
-        } \
-    } while(0)
-#else
-#define GL(cmd) (cmd)
-#define DO_GL(cmd) (cmd)
-#endif
-
 #define CC_MODULATEI            0
 #define CC_MODULATEIA           1
 #define CC_MODULATEIDECALA      2
@@ -356,6 +333,7 @@ void init_scene(gl_state *gl_state) {
 }
 
 void draw_scene(gl_state *gl_state) {
+    DO_GL(glUseProgram(gl_state->program));
     DO_GL(glViewport(0, 0, FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT));
     DO_GL(glEnable(GL_TEXTURE_2D));
     DO_GL(glEnable(GL_DEPTH_TEST));
@@ -376,8 +354,6 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glUniform1i(gl_state->texture_uniform, 0));
 
     DO_GL(glDrawArrays(GL_TRIANGLES, 0, gl_state->triangle_count * 3));
-
-    DO_GL(glFinish());
 }
 
 #ifdef DRAWGL_STANDALONE
@@ -418,6 +394,7 @@ int main(int argc, const char **argv) {
                    &a) < 7) {
             break;
         }
+        //vertex.shade = r | (g << 8) | (b << 16) | (a << 24);
         vertex.shade = r | (g << 8) | (b << 16) | (a << 24);
         vertex.position.z = 1.0;
         switch (vertex_count) {

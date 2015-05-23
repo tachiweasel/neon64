@@ -20,11 +20,24 @@ struct sdl_state {
     SDL_Window *window;
 };
 
+struct plugin_gl_state {
+    GLuint texture;
+    GLuint framebuffer;
+    GLuint renderbuffer;
+    GLuint position_buffer;
+    GLuint program;
+    GLuint vertex_shader;
+    GLuint fragment_shader;
+    GLuint position_attribute;
+    GLuint texture_uniform;
+};
+
 struct plugin {
     memory memory;
     registers registers;
     sdl_state sdl_state;
     gl_state gl_state;
+    plugin_gl_state plugin_gl_state;
     rdp rdp;
 };
 

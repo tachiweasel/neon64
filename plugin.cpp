@@ -6,6 +6,7 @@
 #include "plugin.h"
 #include "rdp.h"
 #include <SDL2/SDL.h>
+#include <assert.h>
 #include <pthread.h>
 #include <stdlib.h>
 
@@ -15,9 +16,39 @@ struct plugin plugin;
 #define WINDOW_WIDTH    1920
 #define WINDOW_HEIGHT   1080
 #else
-#define WINDOW_WIDTH    FRAMEBUFFER_WIDTH
-#define WINDOW_HEIGHT   FRAMEBUFFER_HEIGHT
+#define WINDOW_WIDTH    (FRAMEBUFFER_WIDTH * 2)
+#define WINDOW_HEIGHT   (FRAMEBUFFER_HEIGHT * 2)
 #endif
+
+const GLchar *SCALING_VERTEX_SHADER =
+#ifdef GLES
+    "precision mediump float;\n"
+#endif
+    "attribute vec2 aPosition;\n"
+    "varying vec2 vTextureCoord;\n"
+    "void main(void) {\n"
+    "   gl_Position = vec4(aPosition.x * 2.0 - 1.0, aPosition.y * 2.0 - 1.0, 1.0, 1.0);\n"
+    "   vTextureCoord = aPosition;\n"
+    "}\n";
+
+const GLchar *SCALING_FRAGMENT_SHADER =
+#ifdef GLES
+    "precision mediump float;\n"
+#endif
+    "varying vec2 vTextureCoord;\n"
+    "uniform sampler2D uTexture;\n"
+    "void main(void) {\n"
+    "   gl_FragColor = texture2D(uTexture, vTextureCoord);\n"
+    //"   gl_FragColor = vec4(vTextureCoord.x, vTextureCoord.y, 1.0, 1.0);\n"
+    "}\n";
+
+const float SCALING_VERTICES[] = {
+    0.0, 0.0,
+    0.0, 1.0,
+    1.0, 0.0,
+    1.0, 1.0
+};
+
 extern "C" int dummy_gl_function() {
     return 0;
 }
@@ -106,6 +137,81 @@ extern "C" int ChangeWindow() {
     return 1;
 }
 
+void init_plugin_gl_state(plugin_gl_state *plugin_gl_state) {
+    DO_GL(glEnable(GL_TEXTURE_2D));
+    DO_GL(glGenTextures(1, &plugin_gl_state->texture));
+    DO_GL(glBindTexture(GL_TEXTURE_2D, plugin_gl_state->texture));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+    DO_GL(glTexImage2D(GL_TEXTURE_2D,
+                       0,
+                       GL_RGBA,
+                       FRAMEBUFFER_WIDTH,
+                       FRAMEBUFFER_HEIGHT,
+                       0,
+                       GL_RGBA,
+                       GL_UNSIGNED_BYTE,
+                       NULL));
+
+    DO_GL(glGenFramebuffers(1, &plugin_gl_state->framebuffer));
+    DO_GL(glBindFramebuffer(GL_FRAMEBUFFER, plugin_gl_state->framebuffer));
+    DO_GL(glFramebufferTexture2D(GL_FRAMEBUFFER,
+                                 GL_COLOR_ATTACHMENT0,
+                                 GL_TEXTURE_2D,
+                                 plugin_gl_state->texture,
+                                 0));
+
+    DO_GL(glGenRenderbuffers(1, &plugin_gl_state->renderbuffer));
+    DO_GL(glBindRenderbuffer(GL_RENDERBUFFER, plugin_gl_state->renderbuffer));
+    DO_GL(glRenderbufferStorage(GL_RENDERBUFFER,
+                                GL_DEPTH_COMPONENT24,
+                                FRAMEBUFFER_WIDTH,
+                                FRAMEBUFFER_HEIGHT));
+    DO_GL(glFramebufferRenderbuffer(GL_FRAMEBUFFER,
+                                    GL_DEPTH_ATTACHMENT,
+                                    GL_RENDERBUFFER,
+                                    plugin_gl_state->renderbuffer));
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        abort();
+    }
+
+    DO_GL(glBindFramebuffer(GL_FRAMEBUFFER, plugin_gl_state->framebuffer));
+
+    plugin_gl_state->program = GL(glCreateProgram());
+
+    plugin_gl_state->vertex_shader = GL(glCreateShader(GL_VERTEX_SHADER));
+    DO_GL(glShaderSource(plugin_gl_state->vertex_shader, 1, &SCALING_VERTEX_SHADER, NULL));
+    DO_GL(glCompileShader(plugin_gl_state->vertex_shader));
+    check_shader(plugin_gl_state->vertex_shader);
+
+    plugin_gl_state->fragment_shader = GL(glCreateShader(GL_FRAGMENT_SHADER));
+    DO_GL(glShaderSource(plugin_gl_state->fragment_shader, 1, &SCALING_FRAGMENT_SHADER, NULL));
+    DO_GL(glCompileShader(plugin_gl_state->fragment_shader));
+    check_shader(plugin_gl_state->fragment_shader);
+
+    DO_GL(glAttachShader(plugin_gl_state->program, plugin_gl_state->vertex_shader));
+    DO_GL(glAttachShader(plugin_gl_state->program, plugin_gl_state->fragment_shader));
+    DO_GL(glLinkProgram(plugin_gl_state->program));
+    DO_GL(glUseProgram(plugin_gl_state->program));
+
+    plugin_gl_state->position_attribute = GL(glGetAttribLocation(plugin_gl_state->program,
+                                                                 "aPosition"));
+    plugin_gl_state->texture_uniform = GL(glGetUniformLocation(plugin_gl_state->program,
+                                                               "uTexture"));
+
+    DO_GL(glEnableVertexAttribArray(plugin_gl_state->position_attribute));
+
+    DO_GL(glGenBuffers(1, &plugin_gl_state->position_buffer));
+    DO_GL(glBindBuffer(GL_ARRAY_BUFFER, plugin_gl_state->position_buffer));
+    DO_GL(glBufferData(GL_ARRAY_BUFFER,
+                       sizeof(SCALING_VERTICES),
+                       SCALING_VERTICES,
+                       GL_STATIC_DRAW));
+}
+
 extern "C" int InitiateGFX(GFX_INFO gfx_info) {
     plugin.memory.rdram = gfx_info.RDRAM;
     plugin.memory.dmem = gfx_info.DMEM;
@@ -121,11 +227,35 @@ extern "C" int InitiateGFX(GFX_INFO gfx_info) {
                                                0);
     SDL_GL_CreateContext(plugin.sdl_state.window);
 
+    init_plugin_gl_state(&plugin.plugin_gl_state);
     init_gl_state(&plugin.gl_state);
+
     return 1;
 }
 
 extern "C" void MoveScreen(int xpos, int ypos) {}
+
+void draw_scaled_scene() {
+    DO_GL(glUseProgram(plugin.plugin_gl_state.program));
+
+    DO_GL(glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT));
+    DO_GL(glEnable(GL_TEXTURE_2D));
+    DO_GL(glDisable(GL_DEPTH_TEST));
+
+    DO_GL(glBindBuffer(GL_ARRAY_BUFFER, plugin.plugin_gl_state.position_buffer));
+    DO_GL(glVertexAttribPointer(plugin.plugin_gl_state.position_attribute,
+                                2,
+                                GL_FLOAT,
+                                GL_FALSE,
+                                0,
+                                0));
+
+    DO_GL(glActiveTexture(GL_TEXTURE0 + 0));
+    DO_GL(glBindTexture(GL_TEXTURE_2D, plugin.plugin_gl_state.texture));
+    DO_GL(glUniform1i(plugin.plugin_gl_state.texture_uniform, 0));
+    DO_GL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
+    DO_GL(glFinish());
+}
 
 extern "C" void ProcessDList() {
     uint32_t start_time = SDL_GetTicks();
@@ -157,10 +287,15 @@ extern "C" void ProcessDList() {
     CHECK_GL(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 #endif
 
+    DO_GL(glBindFramebuffer(GL_FRAMEBUFFER, plugin.plugin_gl_state.framebuffer));
     reset_gl_state(&plugin.gl_state);
     process_display_list((display_list *)&plugin.memory.dmem[0x0fc0]);
     init_scene(&plugin.gl_state);
     draw_scene(&plugin.gl_state);
+    DO_GL(glFlush());
+
+    DO_GL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    draw_scaled_scene();
 
     uint32_t end_time = SDL_GetTicks();
     uint32_t elapsed_time = end_time - start_time;
