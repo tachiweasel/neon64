@@ -166,7 +166,7 @@ void init_plugin_gl_state(plugin_gl_state *plugin_gl_state) {
     DO_GL(glGenRenderbuffers(1, &plugin_gl_state->renderbuffer));
     DO_GL(glBindRenderbuffer(GL_RENDERBUFFER, plugin_gl_state->renderbuffer));
     DO_GL(glRenderbufferStorage(GL_RENDERBUFFER,
-                                GL_DEPTH_COMPONENT24,
+                                GL_DEPTH_COMPONENT16,
                                 FRAMEBUFFER_WIDTH,
                                 FRAMEBUFFER_HEIGHT));
     DO_GL(glFramebufferRenderbuffer(GL_FRAMEBUFFER,

@@ -640,6 +640,13 @@ int32_t op_set_env_color(display_item *item) {
     return 0;
 }
 
+int32_t op_set_combine(display_item *item) {
+    uint32_t mux0 = ((uint32_t)item->arg8 << 16) | (uint32_t)item->arg16;
+    uint32_t mux1 = item->arg32;
+    printf("set combine(mux0=%08x, mux1=%08x)\n", mux0, mux1);
+    return 0;
+}
+
 int32_t op_set_texture_image(display_item *item) {
     plugin.rdp.texture_address = segment_address(item->arg32);
     //plugin.rdp.texture_size = (item->arg8 >> 3) & 0x3;
@@ -732,7 +739,7 @@ display_op_t OPS[256] = {
     op_set_blend_color,                 // f9
     op_set_prim_color,                  // fa
     op_set_env_color,                   // fb
-    op_noop,                            // fc
+    op_set_combine,                     // fc
     op_set_texture_image,               // fd
     op_noop,                            // fe
     op_noop,                            // ff
