@@ -10,31 +10,19 @@
 #define TEXTURE_HEIGHT 1024
 #define MAX_TRIANGLES 2048
 
-#define CC_MODULATEI            0
-#define CC_MODULATEIA           1
-#define CC_MODULATEIDECALA      2
-#define CC_MODULATEI_PRIM       3
-#define CC_MODULATEIA_PRIM      4
-#define CC_MODULATEIDECALA_PRIM 5
-#define CC_DECALRGB             6
-#define CC_DECALRGBA            7
-#define CC_BLENDI               8
-#define CC_BLENDIA              9
-#define CC_BLENDIDECALA         10
-#define CC_BLENDRGBA            11
-#define CC_BLENDRGBDECALA       12
-#define CC_REFLECTRGB           13
-#define CC_REFLECTRGBDECALA     14
-#define CC_HILITERGB            15
-#define CC_HILITERGBA           16
-#define CC_HILITERGBDECALA      17
-#define CC_PRIMITIVE            18
-#define CC_SHADE                19
-#define CC_ADDRGB               20
-#define CC_ADDRGBDECALA         21
-#define CC_SHADEDECALA          22
-#define CC_BLENDPE              23
-#define CC_BLENDPEDECALA        24
+#define COLUMN_RGB_MODE         0
+#define COLUMN_A_MODE           1
+#define COLUMN_SA               2
+#define COLUMN_SB               3
+#define COLUMN_M                4
+#define COLUMN_A                5
+#define COLUMN_SHADE_COLOR_0    6
+#define COLUMN_SHADE_COLOR_1    7
+#define COLUMN_SHADE_COLOR_2    8
+#define COLUMN_TEXTURE_COORD_0  9
+#define COLUMN_TEXTURE_COORD_1  10
+#define COLUMN_TEXTURE_COORD_2  11
+#define COLUMN_TEXTURE_BOUNDS   12
 
 const GLchar *VERTEX_SHADER =
 #ifdef GLES
@@ -62,74 +50,59 @@ const GLchar *FRAGMENT_SHADER =
     "uniform sampler2D uData;\n"
     "uniform sampler2D uTexture;\n"
     "void main(void) {\n"
-    "   vec4 mode = texture2D(uData, vec2(0.0 / 16.0, vDataT));\n"
-    "   vec4 shadeColor0 = texture2D(uData, vec2(1.0 / 16.0, vDataT));\n"
-    "   vec4 shadeColor1 = texture2D(uData, vec2(2.0 / 16.0, vDataT));\n"
-    "   vec4 shadeColor2 = texture2D(uData, vec2(3.0 / 16.0, vDataT));\n"
+    "   vec4 rgbMode = texture2D(uData, vec2(0.0 / 16.0, vDataT));\n"
+    "   vec4 aMode = texture2D(uData, vec2(1.0 / 16.0, vDataT));\n"
+    "   vec4 sa = texture2D(uData, vec2(2.0 / 16.0, vDataT));\n"
+    "   vec4 sb = texture2D(uData, vec2(3.0 / 16.0, vDataT));\n"
+    "   vec4 m = texture2D(uData, vec2(4.0 / 16.0, vDataT));\n"
+    "   vec4 a = texture2D(uData, vec2(5.0 / 16.0, vDataT));\n"
+    "   vec4 shadeColor0 = texture2D(uData, vec2(6.0 / 16.0, vDataT));\n"
+    "   vec4 shadeColor1 = texture2D(uData, vec2(7.0 / 16.0, vDataT));\n"
+    "   vec4 shadeColor2 = texture2D(uData, vec2(8.0 / 16.0, vDataT));\n"
     "   vec4 shadeColor = vLambda[0] * shadeColor0 + vLambda[1] * shadeColor1 + vLambda[2] * \n"
     "       shadeColor2;\n"
-    "   vec2 textureCoord0 = texture2D(uData, vec2(4.0 / 16.0, vDataT)).xy;\n"
-    "   vec2 textureCoord1 = texture2D(uData, vec2(5.0 / 16.0, vDataT)).xy;\n"
-    "   vec2 textureCoord2 = texture2D(uData, vec2(6.0 / 16.0, vDataT)).xy;\n"
+    "   vec2 textureCoord0 = texture2D(uData, vec2(9.0 / 16.0, vDataT)).xy;\n"
+    "   vec2 textureCoord1 = texture2D(uData, vec2(10.0 / 16.0, vDataT)).xy;\n"
+    "   vec2 textureCoord2 = texture2D(uData, vec2(11.0 / 16.0, vDataT)).xy;\n"
     "   vec2 textureCoord = vLambda[0] * textureCoord0 + vLambda[1] * textureCoord1 + \n"
     "       vLambda[2] * textureCoord2;\n"
-    "   vec4 textureBounds = texture2D(uData, vec2(7.0 / 16.0, vDataT));\n"
+    "   vec4 textureBounds = texture2D(uData, vec2(12.0 / 16.0, vDataT));\n"
     "   textureCoord = mod(textureCoord, 1.0);\n"
     "   textureCoord = (textureCoord * textureBounds.zw) + textureBounds.xy;\n"
     "   vec4 textureColor = texture2D(uTexture, textureCoord);\n"
-    "   vec4 primitiveColor = texture2D(uData, vec2(8.0 / 16.0, vDataT));\n"
-    "   vec4 environmentColor = texture2D(uData, vec2(9.0 / 16.0, vDataT));\n"
-    "   float colorCombiner = mode[0] * 255.0;\n"
-    "   vec4 resultColor;\n"
-    "   if (colorCombiner < 3.0) {\n"
-    "       resultColor.rgb = textureColor.rgb * shadeColor.rgb;\n"
-    "   } else if (colorCombiner < 6.0) {\n"
-    "       resultColor.rgb = textureColor.rgb * primitiveColor.rgb;\n"
-    "   } else if (colorCombiner < 8.0) {\n"
-    "       resultColor.rgb = textureColor.rgb;\n"
-    "   } else if (colorCombiner < 11.0) {\n"
-    "       resultColor.rgb = (environmentColor.rgb - shadeColor.rgb) * textureColor.rgb + \n"
-    "           shadeColor.rgb;\n"
-    "   } else if (colorCombiner < 13.0) {\n"
-    "       resultColor.rgb = (textureColor.rgb - shadeColor.rgb) * textureColor.a + \n"
-    "           shadeColor.rgb;\n"
-    "   } else if (colorCombiner < 15.0) {\n"
-    "       resultColor.rgb = environmentColor.rgb * textureColor.rgb + shadeColor.rgb;\n"
-    "   } else if (colorCombiner < 18.0) {\n"
-    "       resultColor.rgb = (primitiveColor.rgb - shadeColor.rgb) * textureColor.rgb + \n"
-    "           shadeColor.rgb;\n"
-    "   } else if (colorCombiner == 18.0) {\n"
-    "       resultColor.rgb = primitiveColor.rgb;\n"
-    "   } else if (colorCombiner == 19.0) {\n"
-    "       resultColor.rgb = shadeColor.rgb;\n"
-    "   } else if (colorCombiner < 22.0) {\n"
-    "       resultColor.rgb = textureColor.rgb + shadeColor.rgb;\n"
-    "   } else if (colorCombiner < 23.0) {\n"
-    "       resultColor.rgb = shadeColor.rgb;\n"
-    "   } else {\n"
-    "       resultColor.rgb = (primitiveColor.rgb - environmentColor.rgb) * textureColor.rgb + \n"
-    "           environmentColor.rgb;\n"
-    "   }\n"
-    "   if (colorCombiner == 0.0 || colorCombiner == 6.0 || colorCombiner == 8.0 ||\n"
-    "           colorCombiner == 11.0 || colorCombiner == 13.0 || colorCombiner == 15.0 ||\n"
-    "           colorCombiner == 19.0 || colorCombiner == 20.0) {\n"
-    "       resultColor.a = shadeColor.a;\n"
-    "   } else if (colorCombiner == 1.0 || colorCombiner == 9.0 || colorCombiner == 23.0) {\n"
-    "       resultColor.a = textureColor.a * shadeColor.a;\n"
-    "   } else if (colorCombiner == 2.0 || colorCombiner == 5.0 || colorCombiner == 7.0 ||\n"
-    "           colorCombiner == 10.0 || colorCombiner == 12.0 || colorCombiner == 14.0 ||\n"
-    "           colorCombiner == 17.0 || colorCombiner == 21.0 || colorCombiner == 22.0 ||\n"
-    "           colorCombiner == 24.0) {\n"
-    "       resultColor.a = textureColor.a;\n"
-    "   } else if (colorCombiner == 3.0 || colorCombiner == 18.0) {\n"
-    "       resultColor.a = primitiveColor.a;\n"
-    "   } else if (colorCombiner == 4.0) {\n"
-    "       resultColor.a = textureColor.a * primitiveColor.a;\n"
-    "   } else if (colorCombiner == 16.0) {\n"
-    "       resultColor.a = (primitiveColor.a - shadeColor.a) * textureColor.a + shadeColor.a;\n"
-    "   }\n"
-    "   gl_FragColor = resultColor;\n"
-    //"   gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+    "   if (rgbMode[0] > 0.0 && rgbMode[0] < 1.0)\n"
+    "       sa.rgb = shadeColor.rgb;\n"
+    "   else if (rgbMode[0] == 1.0)\n"
+    "       sa.rgb = textureColor.rgb;\n"
+    "   if (rgbMode[1] > 0.0 && rgbMode[1] < 1.0)\n"
+    "       sb.rgb = shadeColor.rgb;\n"
+    "   else if (rgbMode[1] == 1.0)\n"
+    "       sb.rgb = textureColor.rgb;\n"
+    "   if (rgbMode[2] > 0.0 && rgbMode[2] < 1.0)\n"
+    "       m.rgb = shadeColor.rgb;\n"
+    "   else if (rgbMode[2] == 1.0)\n"
+    "       m.rgb = textureColor.rgb;\n"
+    "   if (rgbMode[3] > 0.0 && rgbMode[3] < 1.0)\n"
+    "       a.rgb = shadeColor.rgb;\n"
+    "   else if (rgbMode[3] == 1.0)\n"
+    "       a.rgb = textureColor.rgb;\n"
+    "   if (aMode[0] > 0.0 && aMode[0] < 1.0)\n"
+    "       sa.a = shadeColor.a;\n"
+    "   else if (aMode[0] == 1.0)\n"
+    "       sa.a = textureColor.a;\n"
+    "   if (aMode[1] > 0.0 && aMode[1] < 1.0)\n"
+    "       sb.a = shadeColor.a;\n"
+    "   else if (aMode[1] == 1.0)\n"
+    "       sb.a = textureColor.a;\n"
+    "   if (aMode[2] > 0.0 && aMode[2] < 1.0)\n"
+    "       m.a = shadeColor.a;\n"
+    "   else if (aMode[2] == 1.0)\n"
+    "       m.a = textureColor.a;\n"
+    "   if (aMode[3] > 0.0 && aMode[3] < 1.0)\n"
+    "       a.a = shadeColor.a;\n"
+    "   else if (aMode[3] == 1.0)\n"
+    "       a.a = textureColor.a;\n"
+    "   gl_FragColor = (sa - sb) * m + a;\n"
     "}\n";
 
 bool is_shallow(vfloat32x4_t *position) {
@@ -253,6 +226,10 @@ void reset_gl_state(gl_state *gl_state) {
     gl_state->triangle_count = 0;
 }
 
+void set_column(gl_state *gl_state, int y, int column, uint32_t value) {
+    gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + column] = value;
+}
+
 void init_scene(gl_state *gl_state) {
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->position_buffer));
     float *triangle_vertices = (float *)malloc(sizeof(float) * 3 * 3 * gl_state->triangle_count);
@@ -309,14 +286,20 @@ void init_scene(gl_state *gl_state) {
         (uint32_t *)malloc(DATA_TEXTURE_WIDTH * DATA_TEXTURE_HEIGHT * sizeof(uint32_t));
     triangle *triangles = gl_state->triangles;
     for (int y = 0; y < MAX_TRIANGLES; y++) {
-        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 0] = CC_SHADE;
-        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 1] = triangles[y].v0.shade;
-        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 2] = triangles[y].v1.shade;
-        gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + 3] = triangles[y].v2.shade;
-        for (int x = 4; x < 16; x++) {
-            gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + x] = rand();
-        }
+        set_column(gl_state, y, COLUMN_RGB_MODE, 0x7f000000);
+        set_column(gl_state, y, COLUMN_A_MODE, 0x7f000000);
+        set_column(gl_state, y, COLUMN_SA, 0);
+        set_column(gl_state, y, COLUMN_SB, 0);
+        set_column(gl_state, y, COLUMN_M, 0);
+        set_column(gl_state, y, COLUMN_A, 0);
+        set_column(gl_state, y, COLUMN_SHADE_COLOR_0, triangles[y].v0.shade);
+        set_column(gl_state, y, COLUMN_SHADE_COLOR_1, triangles[y].v1.shade);
+        set_column(gl_state, y, COLUMN_SHADE_COLOR_2, triangles[y].v2.shade);
+        set_column(gl_state, y, COLUMN_TEXTURE_COORD_0, 0);
+        set_column(gl_state, y, COLUMN_TEXTURE_COORD_1, 0);
+        set_column(gl_state, y, COLUMN_TEXTURE_COORD_2, 0);
     }
+
     DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->data_texture));
     DO_GL(glTexImage2D(GL_TEXTURE_2D,
                        0,
