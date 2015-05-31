@@ -286,12 +286,12 @@ void init_scene(gl_state *gl_state) {
         (uint32_t *)malloc(DATA_TEXTURE_WIDTH * DATA_TEXTURE_HEIGHT * sizeof(uint32_t));
     triangle *triangles = gl_state->triangles;
     for (int y = 0; y < MAX_TRIANGLES; y++) {
-        set_column(gl_state, y, COLUMN_RGB_MODE, 0x7f000000);
-        set_column(gl_state, y, COLUMN_A_MODE, 0x7f000000);
-        set_column(gl_state, y, COLUMN_SA, 0);
-        set_column(gl_state, y, COLUMN_SB, 0);
-        set_column(gl_state, y, COLUMN_M, 0);
-        set_column(gl_state, y, COLUMN_A, 0);
+        set_column(gl_state, y, COLUMN_RGB_MODE, triangles[y].rgb_mode);
+        set_column(gl_state, y, COLUMN_A_MODE, triangles[y].a_mode);
+        set_column(gl_state, y, COLUMN_SA, triangles[y].sa_color);
+        set_column(gl_state, y, COLUMN_SB, triangles[y].sb_color);
+        set_column(gl_state, y, COLUMN_M, triangles[y].m_color);
+        set_column(gl_state, y, COLUMN_A, triangles[y].a_color);
         set_column(gl_state, y, COLUMN_SHADE_COLOR_0, triangles[y].v0.shade);
         set_column(gl_state, y, COLUMN_SHADE_COLOR_1, triangles[y].v1.shade);
         set_column(gl_state, y, COLUMN_SHADE_COLOR_2, triangles[y].v2.shade);

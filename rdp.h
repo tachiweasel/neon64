@@ -17,6 +17,29 @@
 #define TEXTURE_FORMAT_IA       3
 #define TEXTURE_FORMAT_I        4
 
+#define RDP_COMBINE_MODE_COMBINED           0
+#define RDP_COMBINE_MODE_TEXEL0             1
+#define RDP_COMBINE_MODE_TEXEL1             2
+#define RDP_COMBINE_MODE_PRIMITIVE          3
+#define RDP_COMBINE_MODE_SHADE              4
+#define RDP_COMBINE_MODE_ENVIRONMENT        5
+#define RDP_COMBINE_MODE_CENTER             6
+#define RDP_COMBINE_MODE_SCALE              7
+#define RDP_COMBINE_MODE_COMBINED_ALPHA     8
+#define RDP_COMBINE_MODE_TEXEL0_ALPHA       9
+#define RDP_COMBINE_MODE_TEXEL1_ALPHA       10
+#define RDP_COMBINE_MODE_PRIMITIVE_ALPHA    11
+#define RDP_COMBINE_MODE_SHADE_ALPHA        12
+#define RDP_COMBINE_MODE_ENV_ALPHA          13
+#define RDP_COMBINE_MODE_LOD_FRACTION       14
+#define RDP_COMBINE_MODE_PRIM_LOD_FRAC      15
+#define RDP_COMBINE_MODE_NOISE              16
+#define RDP_COMBINE_MODE_K4                 17
+#define RDP_COMBINE_MODE_K5                 18
+#define RDP_COMBINE_MODE_ONE                19
+#define RDP_COMBINE_MODE_ZERO               20
+#define RDP_COMBINE_MODE_UNKNOWN            21
+
 struct matrix4x4f32 {
     float32x4_t m[4];
 };
@@ -52,6 +75,13 @@ struct tile {
     uint8_t shift_t;
 };
 
+struct combiner {
+    uint8_t sargb0, sbrgb0, mrgb0, argb0;
+    uint8_t saa0, sba0, ma0, aa0;
+    uint8_t sargb1, sbrgb1, mrgb1, argb1;
+    uint8_t saa1, sba1, ma1, aa1;
+};
+
 struct rdp {
     matrix4x4f32 projection[16];
     uint32_t projection_index;
@@ -72,6 +102,8 @@ struct rdp {
     bool texture_enabled;
 
     uint32_t segments[16];
+
+    combiner combiner;
 };
 
 void send_dp_interrupt();

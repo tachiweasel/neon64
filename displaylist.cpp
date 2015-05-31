@@ -21,6 +21,107 @@
 
 #define RDRAM_SIZE  (4 * 1024 * 1024)
 
+static const char *COMBINE_MODE_NAMES[] = {
+    "COMBINED",
+    "TEXEL0",
+    "TEXEL1",
+    "PRIMITIVE",
+    "SHADE",
+    "ENVIRONMENT",
+    "CENTER",
+    "SCALE",
+    "COMBINED_ALPHA",
+    "TEXEL0_ALPHA",
+    "TEXEL1_ALPHA",
+    "PRIMITIVE_ALPHA",
+    "SHADE_ALPHA",
+    "ENV_ALPHA",
+    "LOD_FRACTION",
+    "PRIM_LOD_FRAC",
+    "NOISE",
+    "K4",
+    "K5",
+    "ONE",
+    "ZERO",
+    "UNKNOWN",
+};
+
+static const uint8_t SA_RGB_TABLE[16] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0,
+    RDP_COMBINE_MODE_TEXEL1,            RDP_COMBINE_MODE_PRIMITIVE,
+    RDP_COMBINE_MODE_SHADE,             RDP_COMBINE_MODE_ENVIRONMENT,
+    RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_NOISE,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t SB_RGB_TABLE[16] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0,
+    RDP_COMBINE_MODE_TEXEL1,            RDP_COMBINE_MODE_PRIMITIVE,
+    RDP_COMBINE_MODE_SHADE,             RDP_COMBINE_MODE_ENVIRONMENT,
+    RDP_COMBINE_MODE_CENTER,            RDP_COMBINE_MODE_K4,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t M_RGB_TABLE[32] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0,
+    RDP_COMBINE_MODE_TEXEL1,            RDP_COMBINE_MODE_PRIMITIVE,
+    RDP_COMBINE_MODE_SHADE,             RDP_COMBINE_MODE_ENVIRONMENT,
+    RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_COMBINED_ALPHA,
+    RDP_COMBINE_MODE_TEXEL0_ALPHA,      RDP_COMBINE_MODE_TEXEL1_ALPHA,
+    RDP_COMBINE_MODE_PRIMITIVE_ALPHA,   RDP_COMBINE_MODE_SHADE_ALPHA,
+    RDP_COMBINE_MODE_ENV_ALPHA,         RDP_COMBINE_MODE_LOD_FRACTION,
+    RDP_COMBINE_MODE_PRIM_LOD_FRAC,     RDP_COMBINE_MODE_K5,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+    RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t A_RGB_TABLE[8] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0,
+    RDP_COMBINE_MODE_TEXEL1,            RDP_COMBINE_MODE_PRIMITIVE,
+    RDP_COMBINE_MODE_SHADE,             RDP_COMBINE_MODE_ENVIRONMENT,
+    RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t SA_A_TABLE[8] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0_ALPHA,
+    RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t SB_A_TABLE[8] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0_ALPHA,
+    RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t M_A_TABLE[8] = {
+    RDP_COMBINE_MODE_LOD_FRACTION,      RDP_COMBINE_MODE_TEXEL0_ALPHA,
+    RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_PRIM_LOD_FRAC,     RDP_COMBINE_MODE_ZERO,
+};
+
+static const uint8_t A_A_TABLE[8] = {
+    RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0_ALPHA,
+    RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
+};
+
 typedef int32_t (*display_op_t)(display_item *item);
 
 struct vec4u8 {
@@ -479,6 +580,23 @@ int32_t op_draw_triangle(display_item *item) {
     triangle.v2.shade = transformed_vertex_color(&transformed_vertices[2]);
 
 #if 0
+    triangle.sa_color = combiner_color(plugin.rdp.combiner.sargb0, plugin.rdp.combiner.saa0);
+    triangle.sb_color = combiner_color(plugin.rdp.combiner.sbrgb0, plugin.rdp.combiner.sba0);
+    triangle.m_color = combiner_color(plugin.rdp.combiner.mrgb0, plugin.rdp.combiner.ma0);
+    triangle.a_color = combiner_color(plugin.rdp.combiner.argb0, plugin.rdp.combiner.aa0);
+    triangle.rgb_mode =
+        (combiner_mode(plugin.rdp.combiner.sargb0) << 0) |
+        (combiner_mode(plugin.rdp.combiner.sbrgb0) << 8) |
+        (combiner_mode(plugin.rdp.combiner.mrgb0) << 16) |
+        (combiner_mode(plugin.rdp.combiner.argb0) << 24);
+    triangle.a_mode =
+        (combiner_mode(plugin.rdp.combiner.saa0) << 0) |
+        (combiner_mode(plugin.rdp.combiner.sba0) << 8) |
+        (combiner_mode(plugin.rdp.combiner.ma0) << 16) |
+        (combiner_mode(plugin.rdp.combiner.aa0) << 24);
+#endif
+
+#if 0
     if (plugin.rdp.texture_enabled)
         plugin.render_state.texture = &plugin.rdp.swizzled_texture;
     else
@@ -640,10 +758,53 @@ int32_t op_set_env_color(display_item *item) {
     return 0;
 }
 
+void dump_combiner(combiner *combiner) {
+    printf("fragcolor.rgb = (%s + %s) * %s + %s; (%s + %s) * %s + %s;\n",
+           COMBINE_MODE_NAMES[combiner->sargb0],
+           COMBINE_MODE_NAMES[combiner->sbrgb0],
+           COMBINE_MODE_NAMES[combiner->mrgb0],
+           COMBINE_MODE_NAMES[combiner->argb0],
+           COMBINE_MODE_NAMES[combiner->sargb1],
+           COMBINE_MODE_NAMES[combiner->sbrgb1],
+           COMBINE_MODE_NAMES[combiner->mrgb1],
+           COMBINE_MODE_NAMES[combiner->argb1]);
+    printf("fragcolor.a = (%s + %s) * %s + %s; (%s + %s) * %s + %s;\n",
+           COMBINE_MODE_NAMES[combiner->saa0],
+           COMBINE_MODE_NAMES[combiner->sba0],
+           COMBINE_MODE_NAMES[combiner->ma0],
+           COMBINE_MODE_NAMES[combiner->aa0],
+           COMBINE_MODE_NAMES[combiner->saa1],
+           COMBINE_MODE_NAMES[combiner->sba1],
+           COMBINE_MODE_NAMES[combiner->ma1],
+           COMBINE_MODE_NAMES[combiner->aa1]);
+}
+
 int32_t op_set_combine(display_item *item) {
     uint32_t mux0 = ((uint32_t)item->arg8 << 16) | (uint32_t)item->arg16;
     uint32_t mux1 = item->arg32;
+
+    plugin.rdp.combiner.sargb1 = SA_RGB_TABLE[(mux0 >> 5) & 0x0f];
+    plugin.rdp.combiner.sbrgb1 = SB_RGB_TABLE[(mux1 >> 24) & 0x0f];
+    plugin.rdp.combiner.mrgb1 = M_RGB_TABLE[(mux0 >> 0) & 0x1f];
+    plugin.rdp.combiner.argb1 = A_RGB_TABLE[(mux1 >> 6) & 0x07];
+
+    plugin.rdp.combiner.saa1 = SA_A_TABLE[(mux1 >> 21) & 0x07];
+    plugin.rdp.combiner.sba1 = SB_A_TABLE[(mux1 >> 3) & 0x07];
+    plugin.rdp.combiner.ma1 = M_A_TABLE[(mux1 >> 18) & 0x07];
+    plugin.rdp.combiner.aa1 = A_A_TABLE[(mux1 >> 0) & 0x07];
+
+    plugin.rdp.combiner.sargb0 = SA_RGB_TABLE[(mux0 >> 20) & 0x0f];
+    plugin.rdp.combiner.sbrgb0 = SB_RGB_TABLE[(mux1 >> 28) & 0x0f];
+    plugin.rdp.combiner.mrgb0 = M_RGB_TABLE[(mux0 >> 15) & 0x1f];
+    plugin.rdp.combiner.argb0 = A_RGB_TABLE[(mux1 >> 15) & 0x07];
+
+    plugin.rdp.combiner.saa0 = SA_A_TABLE[(mux0 >> 12) & 0x07];
+    plugin.rdp.combiner.sba0 = SB_A_TABLE[(mux1 >> 12) & 0x07];
+    plugin.rdp.combiner.ma0 = M_A_TABLE[(mux0 >> 9) & 0x07];
+    plugin.rdp.combiner.aa0 = A_A_TABLE[(mux1 >> 9) & 0x07];
+
     printf("set combine(mux0=%08x, mux1=%08x)\n", mux0, mux1);
+    dump_combiner(&plugin.rdp.combiner);
     return 0;
 }
 

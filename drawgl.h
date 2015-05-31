@@ -14,6 +14,15 @@
 #define FRAMEBUFFER_WIDTH 320
 #define FRAMEBUFFER_HEIGHT 240
 
+#define COMBINE_MODE_COLOR      0x00
+#define COMBINE_MODE_SHADE      0x7f
+#define COMBINE_MODE_TEXTURE    0xff
+#define COMBINE_MODE_SA_SHIFT   24
+#define COMBINE_MODE_SB_SHIFT   16
+#define COMBINE_MODE_M_SHIFT    8
+#define COMBINE_MODE_A_SHIFT    0
+#define COMBINE_MODE_MASK       0xff
+
 #if 0
 #define GL(cmd) ({ \
     auto _result = (cmd); \
@@ -75,6 +84,12 @@ struct triangle {
     triangle_vertex v0;
     triangle_vertex v1;
     triangle_vertex v2;
+    uint32_t sa_color;
+    uint32_t sb_color;
+    uint32_t m_color;
+    uint32_t a_color;
+    uint32_t rgb_mode;
+    uint32_t a_mode;
 };
 
 void check_shader(GLint shader);
