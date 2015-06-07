@@ -6,10 +6,10 @@
 #include <stdio.h>
 
 #define DATA_TEXTURE_WIDTH  16
-#define DATA_TEXTURE_HEIGHT 2048
+#define DATA_TEXTURE_HEIGHT 4096
 #define TEXTURE_WIDTH       1024
 #define TEXTURE_HEIGHT      1024
-#define MAX_TRIANGLES       2048
+#define MAX_TRIANGLES       4096
 #define MAX_TEXTURE_INFO    1024
 #define MIN_TEXTURE_SIZE    16
 
@@ -85,10 +85,12 @@ const GLchar *FRAGMENT_SHADER =
     "   vec4 textureBounds = texturePixelBounds / 1024.0;\n"
     "   textureCoord = (textureCoord * textureBounds.zw) + textureBounds.xy;\n"
     "   vec4 textureColor = texture2D(uTexture, textureCoord);\n"
+    //"   vec4 textureColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
     "   if (rgbMode[0] > 0.0 && rgbMode[0] < 1.0)\n"
     "       sa.rgb = shadeColor.rgb;\n"
     "   else if (rgbMode[0] == 1.0)\n"
     "       sa.rgb = textureColor.rgb;\n"
+    //"   sa.rgb = vec3(1.0, 1.0, 1.0);\n"
     "   if (rgbMode[1] > 0.0 && rgbMode[1] < 1.0)\n"
     "       sb.rgb = shadeColor.rgb;\n"
     "   else if (rgbMode[1] == 1.0)\n"
@@ -139,10 +141,10 @@ void add_triangle(gl_state *gl_state, triangle *triangle) {
     }
 
     // FIXME(tachiweasel): Remove.
-    /*if (is_shallow(&triangle->v0.position) && is_shallow(&triangle->v1.position) &&
+    if (is_shallow(&triangle->v0.position) && is_shallow(&triangle->v1.position) &&
             is_shallow(&triangle->v2.position)) {
         return;
-    }*/
+    }
 
     gl_state->triangles[gl_state->triangle_count] = *triangle;
     gl_state->triangle_count++;
@@ -422,6 +424,8 @@ void init_scene(gl_state *gl_state) {
         set_column(gl_state, y, COLUMN_TEXTURE_COORD_1, triangles[y].v1.texture_coord);
         set_column(gl_state, y, COLUMN_TEXTURE_COORD_2, triangles[y].v2.texture_coord);
         set_column(gl_state, y, COLUMN_TEXTURE_BOUNDS, triangles[y].texture_bounds);
+
+#if 0
         if (triangles[y].texture_bounds != 0) {
             fprintf(stderr,
                     "texture coords are %08x,%08x,%08x, bounds are %08x\n",
@@ -430,6 +434,7 @@ void init_scene(gl_state *gl_state) {
                     triangles[y].v2.texture_coord,
                     triangles[y].texture_bounds);
         }
+#endif
     }
 
     DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->data_texture));
@@ -445,6 +450,7 @@ void init_scene(gl_state *gl_state) {
     free(gl_state->data_texture_buffer);
 
     if (gl_state->texture_buffer_is_dirty) {
+#if 0
         // Dump to TGA...
         FILE *f = fopen("/tmp/neon64texture.tga", "w");
         char header[ 18 ] = { 0 }; // char = byte
@@ -465,6 +471,7 @@ void init_scene(gl_state *gl_state) {
         }
         fclose(f);
         fprintf(stderr, "wrote /tmp/neon64texture.tga\n");
+#endif
 
         DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->texture));
         DO_GL(glTexImage2D(GL_TEXTURE_2D,
@@ -544,7 +551,6 @@ int main(int argc, const char **argv) {
                    &a) < 7) {
             break;
         }
-        //vertex.shade = r | (g << 8) | (b << 16) | (a << 24);
         vertex.shade = r | (g << 8) | (b << 16) | (a << 24);
         vertex.position.z = 1.0;
         switch (vertex_count) {

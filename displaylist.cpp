@@ -7,9 +7,11 @@
 #include "textures.h"
 #include <stdio.h>
 
-#define MOVE_WORD_MATRIX    0
-#define MOVE_WORD_CLIP      4
-#define MOVE_WORD_SEGMENT   6
+#define MOVE_WORD_MATRIX        0
+#define MOVE_WORD_LIGHT_COUNT   2
+#define MOVE_WORD_CLIP          4
+#define MOVE_WORD_SEGMENT       6
+#define MOVE_WORD_LIGHT_COLOR   10
 
 #define MOVE_MEM_LIGHT_0    0x86
 #define MOVE_MEM_LIGHT_1    0x88
@@ -148,6 +150,14 @@ struct rdp_vertex {
     int16_t s;
 
     uint32_t rgba;
+};
+
+struct rdp_light {
+    uint32_t rgba0;
+    uint32_t rgba1;
+    int8_t x;
+    int8_t y;
+    int8_t z;
 };
 
 // Converts a segmented address to a flat RDRAM address.
@@ -386,6 +396,10 @@ vfloat32x4_t transformed_vertex_position(vertex *vertex) {
 }
 
 uint32_t transformed_vertex_color(vertex *vertex) {
+    if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_SHADE) == 0)
+        return plugin.rdp.primitive_color;
+    if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_LIGHTING) != 0)
+        return plugin.rdp.ambient_light;
     return (((vertex->rgba >> 0) & 0xff) << 24) |
            (((vertex->rgba >> 8) & 0xff) << 16) |
            (((vertex->rgba >> 16) & 0xff) << 8) |
@@ -506,11 +520,27 @@ int32_t op_set_matrix(display_item *item) {
     return 0;
 }
 
+// NB(tachiweasel): This accesses memory.
+void move_mem_light(display_item *item, uint8_t light_index) {
+    if (light_index != plugin.rdp.light_count)
+        return;
+
+    uint32_t addr = segment_address(item->arg32);
+    struct rdp_light *light = (struct rdp_light *)(&plugin.memory.rdram[addr]);
+    plugin.rdp.ambient_light = light->rgba0;
+    printf("*** moving ambient light %08x\n", light->rgba0);
+}
+
 int32_t op_move_mem(display_item *item) {
     switch (item->arg8) {
     case MOVE_MEM_LIGHT_0:
+        move_mem_light(item, 0);
+        break;
     case MOVE_MEM_LIGHT_1:
+        move_mem_light(item, 1);
+        break;
     case MOVE_MEM_LIGHT_2:
+        move_mem_light(item, 2);
         break;
     case MOVE_MEM_MATRIX_1:
         printf("*** move mem matrix 1\n");
@@ -560,9 +590,24 @@ int32_t op_call_display_list(display_item *item) {
     return new_pc - old_pc;
 }
 
+uint32_t combiner_color_component(uint32_t mode) {
+    switch (mode) {
+    case RDP_COMBINE_MODE_PRIMITIVE:
+        return plugin.rdp.primitive_color;
+    case RDP_COMBINE_MODE_ENVIRONMENT:
+        return plugin.rdp.environment_color;
+    case RDP_COMBINE_MODE_ONE:
+        return ~0;
+    case RDP_COMBINE_MODE_ZERO:
+    default:
+        return 0;
+    }
+}
+
 uint32_t combiner_color(uint8_t rgb_mode, uint8_t a_mode) {
-    // TODO(tachiweasel)
-    return 0;
+    uint32_t rgb_component = combiner_color_component(rgb_mode);
+    uint32_t a_component = combiner_color_component(a_mode);
+    return (rgb_component & 0x00ffffff) | (a_component & 0xff000000);
 }
 
 uint32_t combiner_mode(uint8_t combine_mode) {
@@ -618,12 +663,14 @@ int32_t op_draw_triangle(display_item *item) {
     triangle.texture_bounds = bounds_of_texture_with_id(&plugin.gl_state, plugin.rdp.texture_id);
 
 #if 0
-    printf("rgb mode=%08x mode=(%s-%s)*%s+%s\n",
+    printf("rgb mode=%08x mode=(%s-%s)*%s+%s (primitive %08x, texture %u)\n",
            triangle.rgb_mode,
            COMBINE_MODE_NAMES[plugin.rdp.combiner.sargb0],
            COMBINE_MODE_NAMES[plugin.rdp.combiner.sbrgb0],
            COMBINE_MODE_NAMES[plugin.rdp.combiner.mrgb0],
-           COMBINE_MODE_NAMES[plugin.rdp.combiner.argb0]);
+           COMBINE_MODE_NAMES[plugin.rdp.combiner.argb0],
+           plugin.rdp.primitive_color,
+           plugin.rdp.texture_id);
 #endif
     triangle.a_mode =
         (combiner_mode(plugin.rdp.combiner.saa0) << 0) |
@@ -712,6 +759,23 @@ int32_t op_move_word(display_item *item) {
             // printf("segment[%d] = %08x\n", segment, base);
             break;
         }
+    case MOVE_WORD_LIGHT_COUNT:
+        {
+            plugin.rdp.light_count = (item->arg32 - 0x80000000) / 32 - 1;
+            printf("light count = %d\n", plugin.rdp.light_count);
+            break;
+        }
+    case MOVE_WORD_LIGHT_COLOR:
+        {
+            uint16_t light_index = item->arg16 >> 5;
+            if (light_index == plugin.rdp.light_count)
+                plugin.rdp.ambient_light = item->arg32;
+            printf("setting light index %d (light count %d) to %08x\n",
+                   light_index,
+                   plugin.rdp.light_count,
+                   plugin.rdp.ambient_light);
+            break;
+        }
     }
     return 0;
 }
@@ -790,11 +854,14 @@ int32_t op_set_blend_color(display_item *item) {
 
 int32_t op_set_prim_color(display_item *item) {
     //printf("set prim color\n");
+    plugin.rdp.primitive_color = item->arg32;
+    printf("primitive color = %08x\n", plugin.rdp.primitive_color);
     return 0;
 }
 
 int32_t op_set_env_color(display_item *item) {
     //printf("set env color\n");
+    plugin.rdp.environment_color = item->arg32;
     return 0;
 }
 
@@ -857,6 +924,16 @@ int32_t op_set_texture_image(display_item *item) {
     return 0;
 }
 
+int32_t op_clear_geometry_mode(display_item *item) {
+    plugin.rdp.geometry_mode = plugin.rdp.geometry_mode & ~item->arg32;
+    return 0;
+}
+
+int32_t op_set_geometry_mode(display_item *item) {
+    plugin.rdp.geometry_mode = plugin.rdp.geometry_mode | item->arg32;
+    return 0;
+}
+
 int32_t op_end_display_list(display_item *item) {
     return -1;
 }
@@ -900,8 +977,8 @@ display_op_t OPS[256] = {
     op_noop,                            // b3
     op_noop,                            // b4
     op_noop,                            // b5
-    op_noop,                            // b6
-    op_noop,                            // b7
+    op_clear_geometry_mode,             // b6
+    op_set_geometry_mode,               // b7
     op_end_display_list,                // b8
     op_noop,                            // b9
     op_noop,                            // ba
@@ -970,16 +1047,4 @@ void process_display_list(display_list *list) {
     interpret_display_list(list->data_ptr);
     //printf("end master DL processing\n");
 }
-
-void foo(void *render_state,
-         void *framebuffer_pixels,
-         void *z_pixels,
-         void *triangle,
-         int16x8_t z,
-         int16x8_t r,
-         int16x8_t g,
-         int16x8_t b,
-         int16x8_t s,
-         int16x8_t t,
-         uint16x8_t mask) {}
 

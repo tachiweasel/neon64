@@ -40,6 +40,11 @@
 #define RDP_COMBINE_MODE_ZERO               20
 #define RDP_COMBINE_MODE_UNKNOWN            21
 
+#define RDP_GEOMETRY_MODE_ZBUFFER   0x00001
+#define RDP_GEOMETRY_MODE_TEXTURE   0x00002
+#define RDP_GEOMETRY_MODE_SHADE     0x00004
+#define RDP_GEOMETRY_MODE_LIGHTING  0x20000
+
 struct matrix4x4f32 {
     float32x4_t m[4];
 };
@@ -105,6 +110,12 @@ struct rdp {
     uint32_t segments[16];
 
     combiner combiner;
+    uint32_t primitive_color;
+    uint32_t environment_color;
+    uint32_t geometry_mode;
+
+    uint32_t light_count;
+    uint32_t ambient_light;
 };
 
 void send_dp_interrupt();
