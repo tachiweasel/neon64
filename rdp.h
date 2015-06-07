@@ -92,7 +92,6 @@ struct rdp {
     vertex vertices[128];
 
     tile tiles[8];
-    swizzled_texture swizzled_texture;
     uint16_t texture_upper_left_s;
     uint16_t texture_upper_left_t;
     uint16_t texture_lower_right_s;
@@ -100,6 +99,8 @@ struct rdp {
     uint32_t texture_address;
     uint8_t texture_tile;
     bool texture_enabled;
+    // The current texture ID; see `drawgl.h`.
+    uint32_t texture_id;
 
     uint32_t segments[16];
 

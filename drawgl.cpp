@@ -1,14 +1,17 @@
 // neon64/drawgl.cpp
 
 #include "drawgl.h"
+#include "textures.h"
 #include <SDL2/SDL.h>
 #include <stdio.h>
 
 #define DATA_TEXTURE_WIDTH  16
 #define DATA_TEXTURE_HEIGHT 2048
-#define TEXTURE_WIDTH  1024
-#define TEXTURE_HEIGHT 1024
-#define MAX_TRIANGLES 2048
+#define TEXTURE_WIDTH       1024
+#define TEXTURE_HEIGHT      1024
+#define MAX_TRIANGLES       2048
+#define MAX_TEXTURE_INFO    1024
+#define MIN_TEXTURE_SIZE    16
 
 #define COLUMN_RGB_MODE         0
 #define COLUMN_A_MODE           1
@@ -61,13 +64,25 @@ const GLchar *FRAGMENT_SHADER =
     "   vec4 shadeColor2 = texture2D(uData, vec2(8.0 / 16.0, vDataT));\n"
     "   vec4 shadeColor = vLambda[0] * shadeColor0 + vLambda[1] * shadeColor1 + vLambda[2] * \n"
     "       shadeColor2;\n"
-    "   vec2 textureCoord0 = texture2D(uData, vec2(9.0 / 16.0, vDataT)).xy;\n"
-    "   vec2 textureCoord1 = texture2D(uData, vec2(10.0 / 16.0, vDataT)).xy;\n"
-    "   vec2 textureCoord2 = texture2D(uData, vec2(11.0 / 16.0, vDataT)).xy;\n"
+    "   vec4 rawTextureCoord0 = texture2D(uData, vec2(9.0 / 16.0, vDataT));\n"
+    "   vec2 textureCoord0 = vec2(rawTextureCoord0[0] * 65536.0 + rawTextureCoord0[1] * 256.0,\n"
+    "                             rawTextureCoord0[2] * 65536.0 + rawTextureCoord0[3] * 256.0);\n"
+    "   vec4 rawTextureCoord1 = texture2D(uData, vec2(10.0 / 16.0, vDataT));\n"
+    "   vec2 textureCoord1 = vec2(rawTextureCoord1[0] * 65536.0 + rawTextureCoord1[1] * 256.0,\n"
+    "                             rawTextureCoord1[2] * 65536.0 + rawTextureCoord1[3] * 256.0);\n"
+    "   vec4 rawTextureCoord2 = texture2D(uData, vec2(11.0 / 16.0, vDataT));\n"
+    "   vec2 textureCoord2 = vec2(rawTextureCoord2[0] * 65536.0 + rawTextureCoord2[1] * 256.0,\n"
+    "                             rawTextureCoord2[2] * 65536.0 + rawTextureCoord2[3] * 256.0);\n"
     "   vec2 textureCoord = vLambda[0] * textureCoord0 + vLambda[1] * textureCoord1 + \n"
     "       vLambda[2] * textureCoord2;\n"
-    "   vec4 textureBounds = texture2D(uData, vec2(12.0 / 16.0, vDataT));\n"
+    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, vDataT)) * 4096.0;\n"
+    "   /* Convert texture coords to [0.0, 1.0). */\n"
+    "   if (texturePixelBounds.z == 0.0 || texturePixelBounds.w == 0.0)\n"
+    "       texturePixelBounds.zw = vec2(1.0, 1.0);\n"
+    "   textureCoord = textureCoord / texturePixelBounds.zw;\n"
     "   textureCoord = mod(textureCoord, 1.0);\n"
+    "   /* Translate texture coords onto the atlas. */\n"
+    "   vec4 textureBounds = texturePixelBounds / 1024.0;\n"
     "   textureCoord = (textureCoord * textureBounds.zw) + textureBounds.xy;\n"
     "   vec4 textureColor = texture2D(uTexture, textureCoord);\n"
     "   if (rgbMode[0] > 0.0 && rgbMode[0] < 1.0)\n"
@@ -105,6 +120,14 @@ const GLchar *FRAGMENT_SHADER =
     "   gl_FragColor = (sa - sb) * m + a;\n"
     "}\n";
 
+uint16_t minu16(uint16_t a, uint16_t b) {
+    return (a < b) ? a : b;
+}
+
+uint16_t maxu16(uint16_t a, uint16_t b) {
+    return (a > b) ? a : b;
+}
+
 bool is_shallow(vfloat32x4_t *position) {
     return position->z <= 0.0;
 }
@@ -115,13 +138,95 @@ void add_triangle(gl_state *gl_state, triangle *triangle) {
         return;
     }
 
-    if (is_shallow(&triangle->v0.position) && is_shallow(&triangle->v1.position) &&
+    // FIXME(tachiweasel): Remove.
+    /*if (is_shallow(&triangle->v0.position) && is_shallow(&triangle->v1.position) &&
             is_shallow(&triangle->v2.position)) {
         return;
-    }
+    }*/
 
     gl_state->triangles[gl_state->triangle_count] = *triangle;
     gl_state->triangle_count++;
+}
+
+bool texture_space_occupied(gl_state *gl_state,
+                            uint16_t x,
+                            uint16_t y,
+                            uint16_t width,
+                            uint16_t height) {
+    uint16_t left = x, top = y, right = x + width, bottom = y + height;
+    for (unsigned i = 0; i < gl_state->texture_info_count; i++) {
+        gl_texture_info *texture_info = &gl_state->texture_info[i];
+        uint16_t this_left = texture_info->x, this_top = texture_info->y;
+        uint16_t this_right = texture_info->x + texture_info->width;
+        uint16_t this_bottom = texture_info->y + texture_info->height;
+        uint16_t intersection_left = maxu16(left, this_left);
+        uint16_t intersection_top = maxu16(top, this_top);
+        uint16_t intersection_right = minu16(right, this_right);
+        uint16_t intersection_bottom = minu16(bottom, this_bottom);
+        if (intersection_left < intersection_right && intersection_top < intersection_bottom)
+            return true;
+    }
+    return false;
+}
+
+uint32_t id_of_texture_with_hash(gl_state *gl_state, uint32_t hash) {
+    for (uint16_t i = 0; i < gl_state->texture_info_count; i++) {
+        if (gl_state->texture_info[i].hash == hash)
+            return gl_state->texture_info[i].id;
+    }
+    return 0;
+}
+
+uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture) {
+    gl_texture_info texture_info;
+    texture_info.id = gl_state->next_texture_id;
+    gl_state->next_texture_id++;
+    texture_info.hash = texture->hash;
+
+    // Find a spot for the texture.
+    bool found = false;
+    for (uint16_t y = 0; y < TEXTURE_HEIGHT; y += 16) {
+        for (uint16_t x = 0; x < TEXTURE_WIDTH; x += 16) {
+            if (texture_space_occupied(gl_state, x, y, texture->width, texture->height))
+                continue;
+            printf("found location at %d,%d\n", (int)x, (int)y);
+            texture_info.x = x;
+            texture_info.y = y;
+            texture_info.width = texture->width;
+            texture_info.height = texture->height;
+            found = true;
+            break;
+        }
+        if (found)
+            break;
+    }
+
+    if (!found) {
+        fprintf(stderr, "Texture atlas full!\n");
+        abort();
+    }
+
+    // Copy pixels in.
+    for (uint16_t y = 0; y < texture_info.height; y++) {
+        for (uint16_t x = 0; x < texture_info.width; x++) {
+            gl_state->texture_buffer[(texture_info.y + y) * TEXTURE_WIDTH + (texture_info.x + x)]
+                = texture->pixels[y * texture_info.width + x];
+        }
+    }
+
+    uint32_t index = gl_state->texture_info_count;
+    gl_state->texture_info[index] = texture_info;
+    gl_state->texture_info_count++;
+    gl_state->texture_buffer_is_dirty = true;
+
+    printf("added texture: %u @ (%d,%d) for (%d,%d)\n",
+           gl_state->texture_info_count,
+           gl_state->texture_info[index].x,
+           gl_state->texture_info[index].y,
+           gl_state->texture_info[index].width,
+           gl_state->texture_info[index].height);
+
+    return gl_state->texture_info[index].id;
 }
 
 void init_buffers(gl_state *gl_state) {
@@ -217,6 +322,11 @@ void init_shaders(gl_state *gl_state) {
 void init_gl_state(gl_state *gl_state) {
     gl_state->triangles = (triangle *)malloc(sizeof(triangle) * MAX_TRIANGLES);
     gl_state->triangle_count = 0;
+    gl_state->texture_info = (gl_texture_info *)malloc(sizeof(gl_texture_info) * MAX_TEXTURE_INFO);
+    gl_state->texture_info_count = 0;
+    gl_state->next_texture_id = 1;
+    gl_state->texture_buffer_is_dirty = false;
+
     init_buffers(gl_state);
     init_textures(gl_state);
     init_shaders(gl_state);
@@ -228,6 +338,19 @@ void reset_gl_state(gl_state *gl_state) {
 
 void set_column(gl_state *gl_state, int y, int column, uint32_t value) {
     gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + column] = value;
+}
+
+uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id) {
+    for (uint32_t i = 0; i < gl_state->texture_info_count; i++) {
+        gl_texture_info *texture_info = &gl_state->texture_info[i];
+        if (texture_info->id != id)
+            continue;
+        return ((texture_info->x / MIN_TEXTURE_SIZE) << 0) |
+            ((texture_info->y / MIN_TEXTURE_SIZE) << 8) |
+            ((texture_info->width / MIN_TEXTURE_SIZE) << 16) |
+            ((texture_info->height / MIN_TEXTURE_SIZE) << 24);
+    }
+    return 0;
 }
 
 void init_scene(gl_state *gl_state) {
@@ -295,9 +418,18 @@ void init_scene(gl_state *gl_state) {
         set_column(gl_state, y, COLUMN_SHADE_COLOR_0, triangles[y].v0.shade);
         set_column(gl_state, y, COLUMN_SHADE_COLOR_1, triangles[y].v1.shade);
         set_column(gl_state, y, COLUMN_SHADE_COLOR_2, triangles[y].v2.shade);
-        set_column(gl_state, y, COLUMN_TEXTURE_COORD_0, 0);
-        set_column(gl_state, y, COLUMN_TEXTURE_COORD_1, 0);
-        set_column(gl_state, y, COLUMN_TEXTURE_COORD_2, 0);
+        set_column(gl_state, y, COLUMN_TEXTURE_COORD_0, triangles[y].v0.texture_coord);
+        set_column(gl_state, y, COLUMN_TEXTURE_COORD_1, triangles[y].v1.texture_coord);
+        set_column(gl_state, y, COLUMN_TEXTURE_COORD_2, triangles[y].v2.texture_coord);
+        set_column(gl_state, y, COLUMN_TEXTURE_BOUNDS, triangles[y].texture_bounds);
+        if (triangles[y].texture_bounds != 0) {
+            fprintf(stderr,
+                    "texture coords are %08x,%08x,%08x, bounds are %08x\n",
+                    triangles[y].v0.texture_coord,
+                    triangles[y].v1.texture_coord,
+                    triangles[y].v2.texture_coord,
+                    triangles[y].texture_bounds);
+        }
     }
 
     DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->data_texture));
@@ -311,6 +443,41 @@ void init_scene(gl_state *gl_state) {
                        GL_UNSIGNED_BYTE,
                        gl_state->data_texture_buffer));
     free(gl_state->data_texture_buffer);
+
+    if (gl_state->texture_buffer_is_dirty) {
+        // Dump to TGA...
+        FILE *f = fopen("/tmp/neon64texture.tga", "w");
+        char header[ 18 ] = { 0 }; // char = byte
+        header[ 2 ] = 2; // truecolor
+        header[ 12 ] = TEXTURE_WIDTH & 0xFF;
+        header[ 13 ] = (TEXTURE_WIDTH >> 8) & 0xFF;
+        header[ 14 ] = TEXTURE_HEIGHT & 0xFF;
+        header[ 15 ] = (TEXTURE_HEIGHT >> 8) & 0xFF;
+        header[ 16 ] = 24; // bits per pixel
+        fwrite(&header[0], 1, sizeof(header), f);
+        for (int32_t y = TEXTURE_HEIGHT - 1; y >= 0; y--) {
+            for (int32_t x = 0; x < TEXTURE_WIDTH; x++) {
+                uint32_t color = gl_state->texture_buffer[y * TEXTURE_WIDTH + x];
+                fputc((int)((color >> 16) & 0xff), f);
+                fputc((int)((color >> 8) & 0xff), f);
+                fputc((int)((color >> 0) & 0xff), f);
+            }
+        }
+        fclose(f);
+        fprintf(stderr, "wrote /tmp/neon64texture.tga\n");
+
+        DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->texture));
+        DO_GL(glTexImage2D(GL_TEXTURE_2D,
+                           0,
+                           GL_RGBA,
+                           TEXTURE_WIDTH,
+                           TEXTURE_HEIGHT,
+                           0,
+                           GL_RGBA,
+                           GL_UNSIGNED_BYTE,
+                           gl_state->texture_buffer));
+        gl_state->texture_buffer_is_dirty = false;
+    }
 
     printf("triangle count=%d\n", (int)gl_state->triangle_count);
 }
@@ -334,7 +501,7 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glUniform1i(gl_state->data_uniform, 0));
     DO_GL(glActiveTexture(GL_TEXTURE0 + 1));
     DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->texture));
-    DO_GL(glUniform1i(gl_state->texture_uniform, 0));
+    DO_GL(glUniform1i(gl_state->texture_uniform, 1));
 
     DO_GL(glDrawArrays(GL_TRIANGLES, 0, gl_state->triangle_count * 3));
 }

@@ -4,6 +4,7 @@
 #define DRAWGL_H
 
 #include <stdint.h>
+#include "textures.h"
 
 #ifdef __arm__
 #include <GLES2/gl2.h>
@@ -48,6 +49,15 @@
 
 struct triangle;
 
+struct gl_texture_info {
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+    uint32_t id;
+    uint32_t hash;
+};
+
 struct gl_state {
     triangle *triangles;
     uint32_t triangle_count;
@@ -66,6 +76,15 @@ struct gl_state {
     GLuint texture;
     uint32_t *data_texture_buffer;
     uint32_t *texture_buffer;
+    gl_texture_info *texture_info;
+    uint32_t texture_info_count;
+    uint32_t next_texture_id;
+    bool texture_buffer_is_dirty;
+};
+
+struct vfloat32x2_t {
+    float x;
+    float y;
 };
 
 struct vfloat32x4_t {
@@ -78,6 +97,7 @@ struct vfloat32x4_t {
 struct triangle_vertex {
     vfloat32x4_t position;
     uint32_t shade;
+    uint32_t texture_coord;
 };
 
 struct triangle {
@@ -90,11 +110,15 @@ struct triangle {
     uint32_t a_color;
     uint32_t rgb_mode;
     uint32_t a_mode;
+    uint32_t texture_bounds;
 };
 
 void check_shader(GLint shader);
 void init_gl_state(gl_state *gl_state);
 void add_triangle(gl_state *gl_state, triangle *triangle);
+uint32_t id_of_texture_with_hash(gl_state *gl_state, uint32_t hash);
+uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id);
+uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture);
 void reset_gl_state(gl_state *gl_state);
 void init_scene(gl_state *gl_state);
 void draw_scene(gl_state *gl_state);

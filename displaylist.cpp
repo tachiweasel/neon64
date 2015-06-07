@@ -392,6 +392,13 @@ uint32_t transformed_vertex_color(vertex *vertex) {
            (((vertex->rgba >> 24) & 0xff) << 0);
 }
 
+uint32_t transformed_vertex_texture_coord(vertex *vertex) {
+    return ((abs(vertex->t) & 0xff) << 24) |
+        (((abs(vertex->t) >> 8) & 0xff) << 16) |
+        ((abs(vertex->s) & 0xff) << 8) |
+        (((abs(vertex->s) >> 8) & 0xff) << 0);
+}
+
 int32_t op_noop(display_item *item) {
     return 0;
 }
@@ -516,7 +523,6 @@ int32_t op_move_mem(display_item *item) {
 
 int32_t op_vertex(display_item *item) {
     uint8_t count = (item->arg8 >> 4) + 1;
-    uint8_t start_index = item->arg8 & 0xf;
     uint32_t addr = segment_address(item->arg32);
     //printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
     struct rdp_vertex *base = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
@@ -554,6 +560,23 @@ int32_t op_call_display_list(display_item *item) {
     return new_pc - old_pc;
 }
 
+uint32_t combiner_color(uint8_t rgb_mode, uint8_t a_mode) {
+    // TODO(tachiweasel)
+    return 0;
+}
+
+uint32_t combiner_mode(uint8_t combine_mode) {
+    switch (combine_mode) {
+    case RDP_COMBINE_MODE_TEXEL0:
+    case RDP_COMBINE_MODE_TEXEL1:
+        return 0xff;
+    case RDP_COMBINE_MODE_SHADE:
+        return 0x80;
+    default:
+        return 0x00;
+    }
+}
+
 int32_t op_draw_triangle(display_item *item) {
     uint8_t indices[3] = {
         (uint8_t)((item->arg32 >> 16) / 10),
@@ -574,12 +597,14 @@ int32_t op_draw_triangle(display_item *item) {
     triangle triangle;
     triangle.v0.position = transformed_vertex_position(&transformed_vertices[0]);
     triangle.v0.shade = transformed_vertex_color(&transformed_vertices[0]);
+    triangle.v0.texture_coord = transformed_vertex_texture_coord(&transformed_vertices[0]);
     triangle.v1.position = transformed_vertex_position(&transformed_vertices[1]);
     triangle.v1.shade = transformed_vertex_color(&transformed_vertices[1]);
+    triangle.v1.texture_coord = transformed_vertex_texture_coord(&transformed_vertices[1]);
     triangle.v2.position = transformed_vertex_position(&transformed_vertices[2]);
     triangle.v2.shade = transformed_vertex_color(&transformed_vertices[2]);
+    triangle.v2.texture_coord = transformed_vertex_texture_coord(&transformed_vertices[2]);
 
-#if 0
     triangle.sa_color = combiner_color(plugin.rdp.combiner.sargb0, plugin.rdp.combiner.saa0);
     triangle.sb_color = combiner_color(plugin.rdp.combiner.sbrgb0, plugin.rdp.combiner.sba0);
     triangle.m_color = combiner_color(plugin.rdp.combiner.mrgb0, plugin.rdp.combiner.ma0);
@@ -589,12 +614,23 @@ int32_t op_draw_triangle(display_item *item) {
         (combiner_mode(plugin.rdp.combiner.sbrgb0) << 8) |
         (combiner_mode(plugin.rdp.combiner.mrgb0) << 16) |
         (combiner_mode(plugin.rdp.combiner.argb0) << 24);
+
+    triangle.texture_bounds = bounds_of_texture_with_id(&plugin.gl_state, plugin.rdp.texture_id);
+
+#if 0
+    printf("rgb mode=%08x mode=(%s-%s)*%s+%s\n",
+           triangle.rgb_mode,
+           COMBINE_MODE_NAMES[plugin.rdp.combiner.sargb0],
+           COMBINE_MODE_NAMES[plugin.rdp.combiner.sbrgb0],
+           COMBINE_MODE_NAMES[plugin.rdp.combiner.mrgb0],
+           COMBINE_MODE_NAMES[plugin.rdp.combiner.argb0]);
+#endif
     triangle.a_mode =
         (combiner_mode(plugin.rdp.combiner.saa0) << 0) |
         (combiner_mode(plugin.rdp.combiner.sba0) << 8) |
         (combiner_mode(plugin.rdp.combiner.ma0) << 16) |
         (combiner_mode(plugin.rdp.combiner.aa0) << 24);
-#endif
+    triangle.a_mode = 0xff000000;
 
 #if 0
     if (plugin.rdp.texture_enabled)
@@ -642,7 +678,7 @@ int32_t op_pop_matrix(display_item *item) {
 int32_t op_texture(display_item *item) {
     plugin.rdp.texture_enabled = item->arg16 & 1;
     plugin.rdp.texture_tile = (item->arg16 >> 8) & 0x7;
-    uint8_t level = (item->arg16 >> 11) & 0x7;
+    // uint8_t level = (item->arg16 >> 11) & 0x7;
 #if 0
     printf("texture: tile=%d level=%d enabled=%d\n",
            (int)plugin.rdp.texture_tile,
@@ -702,9 +738,13 @@ int32_t op_load_block(display_item *item) {
            plugin.rdp.texture_lower_right_t);
 #endif
 
-    if (texture_is_active(&plugin.rdp.swizzled_texture))
-        destroy_texture(&plugin.rdp.swizzled_texture);
-    plugin.rdp.swizzled_texture = load_texture(tile_index);
+    swizzled_texture swizzled_texture = load_texture_metadata(tile_index);
+    plugin.rdp.texture_id = id_of_texture_with_hash(&plugin.gl_state, swizzled_texture.hash);
+    if (plugin.rdp.texture_id == 0) {
+        load_texture_pixels(&swizzled_texture, tile_index);
+        plugin.rdp.texture_id = add_texture(&plugin.gl_state, &swizzled_texture);
+        destroy_texture(&swizzled_texture);
+    }
     return 0;
 }
 
@@ -803,8 +843,8 @@ int32_t op_set_combine(display_item *item) {
     plugin.rdp.combiner.ma0 = M_A_TABLE[(mux0 >> 9) & 0x07];
     plugin.rdp.combiner.aa0 = A_A_TABLE[(mux1 >> 9) & 0x07];
 
-    printf("set combine(mux0=%08x, mux1=%08x)\n", mux0, mux1);
-    dump_combiner(&plugin.rdp.combiner);
+    //printf("set combine(mux0=%08x, mux1=%08x)\n", mux0, mux1);
+    //dump_combiner(&plugin.rdp.combiner);
     return 0;
 }
 
