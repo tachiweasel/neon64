@@ -395,15 +395,19 @@ vfloat32x4_t transformed_vertex_position(vertex *vertex) {
     return vertex->position;
 }
 
+uint32_t bswapu32(uint32_t x) {
+    return (((x >> 0) & 0xff) << 24) |
+           (((x >> 8) & 0xff) << 16) |
+           (((x >> 16) & 0xff) << 8) |
+           (((x >> 24) & 0xff) << 0);
+}
+
 uint32_t transformed_vertex_color(vertex *vertex) {
     if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_SHADE) == 0)
         return plugin.rdp.primitive_color;
     if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_LIGHTING) != 0)
-        return plugin.rdp.ambient_light;
-    return (((vertex->rgba >> 0) & 0xff) << 24) |
-           (((vertex->rgba >> 8) & 0xff) << 16) |
-           (((vertex->rgba >> 16) & 0xff) << 8) |
-           (((vertex->rgba >> 24) & 0xff) << 0);
+        return bswapu32(plugin.rdp.ambient_light);
+    return bswapu32(vertex->rgba);
 }
 
 uint32_t transformed_vertex_texture_coord(vertex *vertex) {
@@ -527,7 +531,7 @@ void move_mem_light(display_item *item, uint8_t light_index) {
 
     uint32_t addr = segment_address(item->arg32);
     struct rdp_light *light = (struct rdp_light *)(&plugin.memory.rdram[addr]);
-    plugin.rdp.ambient_light = light->rgba0;
+    plugin.rdp.ambient_light = light->rgba0 | 0x000000ff;
     printf("*** moving ambient light %08x\n", light->rgba0);
 }
 
