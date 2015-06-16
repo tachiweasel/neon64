@@ -31,13 +31,13 @@ const GLchar *VERTEX_SHADER =
 #ifdef GLES
     "precision mediump float;\n"
 #endif
-    "attribute vec3 aPosition;\n"
+    "attribute vec4 aPosition;\n"
     "attribute float aVertexIndex;\n"
     "attribute float aDataT;\n"
     "varying vec3 vLambda;\n"
     "varying float vDataT;\n"
     "void main(void) {\n"
-    "   gl_Position = vec4(aPosition.x, aPosition.y, aPosition.z, 1.0);\n"
+    "   gl_Position = aPosition;\n"
     "   vLambda = vec3(aVertexIndex == 0.0 ? 1.0 : 0.0,\n"
     "                  aVertexIndex == 1.0 ? 1.0 : 0.0,\n"
     "                  aVertexIndex == 2.0 ? 1.0 : 0.0);\n"
@@ -53,29 +53,31 @@ const GLchar *FRAGMENT_SHADER =
     "uniform sampler2D uData;\n"
     "uniform sampler2D uTexture;\n"
     "void main(void) {\n"
-    "   vec4 rgbMode = texture2D(uData, vec2(0.0 / 16.0, vDataT));\n"
-    "   vec4 aMode = texture2D(uData, vec2(1.0 / 16.0, vDataT));\n"
-    "   vec4 sa = texture2D(uData, vec2(2.0 / 16.0, vDataT));\n"
-    "   vec4 sb = texture2D(uData, vec2(3.0 / 16.0, vDataT));\n"
-    "   vec4 m = texture2D(uData, vec2(4.0 / 16.0, vDataT));\n"
-    "   vec4 a = texture2D(uData, vec2(5.0 / 16.0, vDataT));\n"
-    "   vec4 shadeColor0 = texture2D(uData, vec2(6.0 / 16.0, vDataT));\n"
-    "   vec4 shadeColor1 = texture2D(uData, vec2(7.0 / 16.0, vDataT));\n"
-    "   vec4 shadeColor2 = texture2D(uData, vec2(8.0 / 16.0, vDataT));\n"
+    "   float dataT = fract(vDataT) > 0.5 ? ceil(vDataT) : floor(vDataT);\n"
+    "   dataT /= 4096.0;\n"
+    "   vec4 rgbMode = texture2D(uData, vec2(0.0 / 16.0, dataT));\n"
+    "   vec4 aMode = texture2D(uData, vec2(1.0 / 16.0, dataT));\n"
+    "   vec4 sa = texture2D(uData, vec2(2.0 / 16.0, dataT));\n"
+    "   vec4 sb = texture2D(uData, vec2(3.0 / 16.0, dataT));\n"
+    "   vec4 m = texture2D(uData, vec2(4.0 / 16.0, dataT));\n"
+    "   vec4 a = texture2D(uData, vec2(5.0 / 16.0, dataT));\n"
+    "   vec4 shadeColor0 = texture2D(uData, vec2(6.0 / 16.0, dataT));\n"
+    "   vec4 shadeColor1 = texture2D(uData, vec2(7.0 / 16.0, dataT));\n"
+    "   vec4 shadeColor2 = texture2D(uData, vec2(8.0 / 16.0, dataT));\n"
     "   vec4 shadeColor = vLambda[0] * shadeColor0 + vLambda[1] * shadeColor1 + vLambda[2] * \n"
     "       shadeColor2;\n"
-    "   vec4 rawTextureCoord0 = texture2D(uData, vec2(9.0 / 16.0, vDataT));\n"
+    "   vec4 rawTextureCoord0 = texture2D(uData, vec2(9.0 / 16.0, dataT));\n"
     "   vec2 textureCoord0 = vec2(rawTextureCoord0[0] * 65536.0 + rawTextureCoord0[1] * 256.0,\n"
     "                             rawTextureCoord0[2] * 65536.0 + rawTextureCoord0[3] * 256.0);\n"
-    "   vec4 rawTextureCoord1 = texture2D(uData, vec2(10.0 / 16.0, vDataT));\n"
+    "   vec4 rawTextureCoord1 = texture2D(uData, vec2(10.0 / 16.0, dataT));\n"
     "   vec2 textureCoord1 = vec2(rawTextureCoord1[0] * 65536.0 + rawTextureCoord1[1] * 256.0,\n"
     "                             rawTextureCoord1[2] * 65536.0 + rawTextureCoord1[3] * 256.0);\n"
-    "   vec4 rawTextureCoord2 = texture2D(uData, vec2(11.0 / 16.0, vDataT));\n"
+    "   vec4 rawTextureCoord2 = texture2D(uData, vec2(11.0 / 16.0, dataT));\n"
     "   vec2 textureCoord2 = vec2(rawTextureCoord2[0] * 65536.0 + rawTextureCoord2[1] * 256.0,\n"
     "                             rawTextureCoord2[2] * 65536.0 + rawTextureCoord2[3] * 256.0);\n"
     "   vec2 textureCoord = vLambda[0] * textureCoord0 + vLambda[1] * textureCoord1 + \n"
     "       vLambda[2] * textureCoord2;\n"
-    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, vDataT)) * 4096.0;\n"
+    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, dataT)) * 4096.0;\n"
     "   /* Convert texture coords to [0.0, 1.0). */\n"
     "   if (texturePixelBounds.z == 0.0 || texturePixelBounds.w == 0.0)\n"
     "       texturePixelBounds.zw = vec2(1.0, 1.0);\n"
@@ -120,6 +122,12 @@ const GLchar *FRAGMENT_SHADER =
     "   else if (aMode[3] == 1.0)\n"
     "       a.a = textureColor.a;\n"
     "   gl_FragColor = (sa - sb) * m + a;\n"
+#if 0
+    "   if (fract(vDataT) != 0.0)\n"
+    "       gl_FragColor = vec4(fract(vDataT), 0.0, 0.0, 1.0);\n"
+    "   else\n"
+    "       gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+#endif
     "}\n";
 
 uint16_t minu16(uint16_t a, uint16_t b) {
@@ -131,7 +139,8 @@ uint16_t maxu16(uint16_t a, uint16_t b) {
 }
 
 bool is_shallow(vfloat32x4_t *position) {
-    return position->z <= 0.0;
+    //return position->z < 0.1 && position->z > -0.2;
+    abort();
 }
 
 void add_triangle(gl_state *gl_state, triangle *triangle) {
@@ -140,11 +149,13 @@ void add_triangle(gl_state *gl_state, triangle *triangle) {
         return;
     }
 
+#if 0
     // FIXME(tachiweasel): Remove.
     if (is_shallow(&triangle->v0.position) && is_shallow(&triangle->v1.position) &&
             is_shallow(&triangle->v2.position)) {
         return;
     }
+#endif
 
     gl_state->triangles[gl_state->triangle_count] = *triangle;
     gl_state->triangle_count++;
@@ -357,26 +368,49 @@ uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id) {
 
 void init_scene(gl_state *gl_state) {
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->position_buffer));
-    float *triangle_vertices = (float *)malloc(sizeof(float) * 3 * 3 * gl_state->triangle_count);
-    for (unsigned i = 0; i < gl_state->triangle_count; i++) {
-        triangle_vertices[i * 9 + 0] = gl_state->triangles[i].v0.position.x;
-        triangle_vertices[i * 9 + 1] = gl_state->triangles[i].v0.position.y;
-        triangle_vertices[i * 9 + 2] = gl_state->triangles[i].v0.position.z;
-        triangle_vertices[i * 9 + 3] = gl_state->triangles[i].v1.position.x;
-        triangle_vertices[i * 9 + 4] = gl_state->triangles[i].v1.position.y;
-        triangle_vertices[i * 9 + 5] = gl_state->triangles[i].v1.position.z;
-        triangle_vertices[i * 9 + 6] = gl_state->triangles[i].v2.position.x;
-        triangle_vertices[i * 9 + 7] = gl_state->triangles[i].v2.position.y;
-        triangle_vertices[i * 9 + 8] = gl_state->triangles[i].v2.position.z;
+
+    printf("triangle count = %d, first 1/32 are %d\n",
+           gl_state->triangle_count,
+           gl_state->triangle_count / 32);
 #if 0
-        printf("%f,%f,%f\n",
-               gl_state->triangles[i].v0.position.x,
-               gl_state->triangles[i].v0.position.y,
-               gl_state->triangles[i].v0.position.z);
+    memcpy(&gl_state->triangles[gl_state->triangle_count / 64],
+           &gl_state->triangles[gl_state->triangle_count * 2 / 64],
+           sizeof(gl_state->triangles[0]) * gl_state->triangle_count * 62 / 64);
+    gl_state->triangle_count = gl_state->triangle_count * 63 / 64;
+#endif
+
+    float *triangle_vertices = (float *)malloc(sizeof(float) * 3 * 4 * gl_state->triangle_count);
+    for (unsigned i = 0; i < gl_state->triangle_count; i++) {
+        triangle_vertices[i * 12 + 0] = gl_state->triangles[i].v0.position.x;
+        triangle_vertices[i * 12 + 1] = gl_state->triangles[i].v0.position.y;
+        triangle_vertices[i * 12 + 2] = gl_state->triangles[i].v0.position.z;
+        triangle_vertices[i * 12 + 3] = gl_state->triangles[i].v0.position.w;
+        triangle_vertices[i * 12 + 4] = gl_state->triangles[i].v1.position.x;
+        triangle_vertices[i * 12 + 5] = gl_state->triangles[i].v1.position.y;
+        triangle_vertices[i * 12 + 6] = gl_state->triangles[i].v1.position.z;
+        triangle_vertices[i * 12 + 7] = gl_state->triangles[i].v1.position.w;
+        triangle_vertices[i * 12 + 8] = gl_state->triangles[i].v2.position.x;
+        triangle_vertices[i * 12 + 9] = gl_state->triangles[i].v2.position.y;
+        triangle_vertices[i * 12 + 10] = gl_state->triangles[i].v2.position.z;
+        triangle_vertices[i * 12 + 11] = gl_state->triangles[i].v2.position.w;
+
+#if 0
+        if (i < gl_state->triangle_count * 62 / 64) {
+            printf("trivert %f,%f,%f %f,%f,%f %f,%f,%f\n",
+                   gl_state->triangles[i].v0.position.x,
+                   gl_state->triangles[i].v0.position.y,
+                   gl_state->triangles[i].v0.position.z,
+                   gl_state->triangles[i].v1.position.x,
+                   gl_state->triangles[i].v1.position.y,
+                   gl_state->triangles[i].v1.position.z,
+                   gl_state->triangles[i].v2.position.x,
+                   gl_state->triangles[i].v2.position.y,
+                   gl_state->triangles[i].v2.position.z);
+        }
 #endif
     }
     DO_GL(glBufferData(GL_ARRAY_BUFFER,
-                       gl_state->triangle_count * 3 * 3 * sizeof(float),
+                       gl_state->triangle_count * 3 * 4 * sizeof(float),
                        triangle_vertices,
                        GL_STATIC_DRAW));
     free(triangle_vertices);
@@ -397,9 +431,9 @@ void init_scene(gl_state *gl_state) {
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->data_t_buffer));
     float *data_t_values = (float *)malloc(sizeof(float) * 3 * gl_state->triangle_count);
     for (unsigned int i = 0; i < gl_state->triangle_count; i++) {
-        data_t_values[i * 3 + 0] = (float)i / (float)DATA_TEXTURE_HEIGHT;
-        data_t_values[i * 3 + 1] = (float)i / (float)DATA_TEXTURE_HEIGHT;
-        data_t_values[i * 3 + 2] = (float)i / (float)DATA_TEXTURE_HEIGHT;
+        data_t_values[i * 3 + 0] = (float)i/* / (float)DATA_TEXTURE_HEIGHT*/;
+        data_t_values[i * 3 + 1] = (float)i/* / (float)DATA_TEXTURE_HEIGHT*/;
+        data_t_values[i * 3 + 2] = (float)i/* / (float)DATA_TEXTURE_HEIGHT*/;
     }
     DO_GL(glBufferData(GL_ARRAY_BUFFER,
                        gl_state->triangle_count * 3 * sizeof(float),
@@ -494,11 +528,12 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glViewport(0, 0, FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT));
     DO_GL(glEnable(GL_TEXTURE_2D));
     DO_GL(glEnable(GL_DEPTH_TEST));
-    DO_GL(glDepthFunc(GL_LESS));
+    DO_GL(glEnable(GL_CULL_FACE));
+    DO_GL(glCullFace(GL_BACK));
     DO_GL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->position_buffer));
-    DO_GL(glVertexAttribPointer(gl_state->position_attribute, 3, GL_FLOAT, GL_FALSE, 0, 0));
+    DO_GL(glVertexAttribPointer(gl_state->position_attribute, 4, GL_FLOAT, GL_FALSE, 0, 0));
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->vertex_index_buffer));
     DO_GL(glVertexAttribPointer(gl_state->vertex_index_attribute, 1, GL_FLOAT, GL_FALSE, 0, 0));
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->data_t_buffer));
@@ -511,6 +546,8 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glUniform1i(gl_state->texture_uniform, 1));
 
     DO_GL(glDrawArrays(GL_TRIANGLES, 0, gl_state->triangle_count * 3));
+
+    DO_GL(glDisable(GL_CULL_FACE));
 }
 
 #ifdef DRAWGL_STANDALONE

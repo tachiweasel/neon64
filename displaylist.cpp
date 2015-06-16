@@ -12,6 +12,7 @@
 #define MOVE_WORD_CLIP          4
 #define MOVE_WORD_SEGMENT       6
 #define MOVE_WORD_LIGHT_COLOR   10
+#define MOVE_WORD_VERTEX        12
 
 #define MOVE_MEM_LIGHT_0    0x86
 #define MOVE_MEM_LIGHT_1    0x88
@@ -351,39 +352,33 @@ void transform_and_light_vertex(vertex *vertex) {
 #endif
 
     vfloat32x4_t position = vertex->position;
-#if 0
-    printf("vertex shading: %f,%f,%f,%f -> ",
-           vgetq_lane_f32(position, 0),
-           vgetq_lane_f32(position, 1),
-           vgetq_lane_f32(position, 2),
-           vgetq_lane_f32(position, 3));
-#endif
+
+    if (plugin.rdp.matrix_changes < 11) {
+        printf("vertex shading (matrix changes %d): %f,%f,%f,%f -> ",
+               plugin.rdp.matrix_changes,
+               position.x,
+               position.y,
+               position.z,
+               position.w);
+    }
 
     position = multiply_matrix4x4f32_float32x4(modelview, position);
     position = multiply_matrix4x4f32_float32x4(projection, position);
 
-#if 0
-    printf("%f,%f,%f,%f -> ",
-           vgetq_lane_f32(position, 0),
-           vgetq_lane_f32(position, 1),
-           vgetq_lane_f32(position, 2),
-           vgetq_lane_f32(position, 3));
-#endif
+    if (plugin.rdp.matrix_changes < 11) {
+        printf("%f,%f,%f,%f -> ", position.x, position.y, position.z, position.w);
+    }
 
-    // Perform perspective division.
-    float w = (float)position.w;
-    position.x = position.x / w;
-    position.y = position.y / w;
-    position.z = position.z / w;
-    position.w = 1.0;
+    // Perspective divide.
+    //position.x /= position.w;
+    //position.y /= position.w;
+    //position.z /= position.w;
+    //position.w = 1.0;
+    //position.w = 3333;
 
-#if 0
-    printf("vertex: %f,%f,%f,%f\n",
-           vgetq_lane_f32(position, 0),
-           vgetq_lane_f32(position, 1),
-           vgetq_lane_f32(position, 2),
-           vgetq_lane_f32(position, 3));
-#endif
+    if (plugin.rdp.matrix_changes < 11) {
+        printf("vertex: %f,%f,%f,%f\n", position.x, position.y, position.z, position.w);
+    }
 
     vertex->position = position;
 
@@ -426,35 +421,43 @@ int32_t op_set_matrix(display_item *item) {
     bool set = (item->arg8 >> 1) & 1;
     bool push = (item->arg8 >> 2) & 1;
     uint32_t addr = segment_address(item->arg32);
+
+    plugin.rdp.matrix_changes++;
+
 #if 0
-    printf("set matrix(%08x, %s, %s, %s)\n",
-           addr,
-           projection ? "PROJECTION" : "MODELVIEW",
-           set ? "SET" : "MULTIPLY",
-           push ? "PUSH" : "OVERWRITE");
+    if (plugin.gl_state.triangle_count < 70) {
+        printf("%d: set matrix(%08x, %s, %s, %s)\n",
+               plugin.rdp.matrix_changes,
+               addr,
+               projection ? "PROJECTION" : "MODELVIEW",
+               set ? "SET" : "MULTIPLY",
+               push ? "PUSH" : "OVERWRITE");
+    }
 #endif
 
     matrix4x4f32 new_matrix = load_matrix(addr);
 
 #if 0
-    printf("set %s loading:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
-           projection ? "projection" : "modelview",
-           vgetq_lane_f32(new_matrix.m[0], 0),
-           vgetq_lane_f32(new_matrix.m[0], 1),
-           vgetq_lane_f32(new_matrix.m[0], 2),
-           vgetq_lane_f32(new_matrix.m[0], 3),
-           vgetq_lane_f32(new_matrix.m[1], 0),
-           vgetq_lane_f32(new_matrix.m[1], 1),
-           vgetq_lane_f32(new_matrix.m[1], 2),
-           vgetq_lane_f32(new_matrix.m[1], 3),
-           vgetq_lane_f32(new_matrix.m[2], 0),
-           vgetq_lane_f32(new_matrix.m[2], 1),
-           vgetq_lane_f32(new_matrix.m[2], 2),
-           vgetq_lane_f32(new_matrix.m[2], 3),
-           vgetq_lane_f32(new_matrix.m[3], 0),
-           vgetq_lane_f32(new_matrix.m[3], 1),
-           vgetq_lane_f32(new_matrix.m[3], 2),
-           vgetq_lane_f32(new_matrix.m[3], 3));
+    if (!projection && plugin.rdp.matrix_changes < 12) {
+        printf("set %s loading:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
+               projection ? "projection" : "modelview",
+               vgetq_lane_f32(new_matrix.m[0], 0),
+               vgetq_lane_f32(new_matrix.m[0], 1),
+               vgetq_lane_f32(new_matrix.m[0], 2),
+               vgetq_lane_f32(new_matrix.m[0], 3),
+               vgetq_lane_f32(new_matrix.m[1], 0),
+               vgetq_lane_f32(new_matrix.m[1], 1),
+               vgetq_lane_f32(new_matrix.m[1], 2),
+               vgetq_lane_f32(new_matrix.m[1], 3),
+               vgetq_lane_f32(new_matrix.m[2], 0),
+               vgetq_lane_f32(new_matrix.m[2], 1),
+               vgetq_lane_f32(new_matrix.m[2], 2),
+               vgetq_lane_f32(new_matrix.m[2], 3),
+               vgetq_lane_f32(new_matrix.m[3], 0),
+               vgetq_lane_f32(new_matrix.m[3], 1),
+               vgetq_lane_f32(new_matrix.m[3], 2),
+               vgetq_lane_f32(new_matrix.m[3], 3));
+    }
 #endif
 
     if (projection) {
@@ -532,7 +535,6 @@ void move_mem_light(display_item *item, uint8_t light_index) {
     uint32_t addr = segment_address(item->arg32);
     struct rdp_light *light = (struct rdp_light *)(&plugin.memory.rdram[addr]);
     plugin.rdp.ambient_light = light->rgba0 | 0x000000ff;
-    printf("*** moving ambient light %08x\n", light->rgba0);
 }
 
 int32_t op_move_mem(display_item *item) {
@@ -558,6 +560,9 @@ int32_t op_move_mem(display_item *item) {
 int32_t op_vertex(display_item *item) {
     uint8_t count = (item->arg8 >> 4) + 1;
     uint32_t addr = segment_address(item->arg32);
+    uint8_t start_index = item->arg8 & 0xf;
+    if (start_index != 0)
+        printf("*** start index %d\n", (int)start_index);
     //printf("vertex(%d, %d, %08x)\n", (int)start_index, (int)count, addr);
     struct rdp_vertex *base = (struct rdp_vertex *)(&plugin.memory.rdram[addr]);
     for (uint8_t i = 0; i < count; i++) {
@@ -627,6 +632,26 @@ uint32_t combiner_mode(uint8_t combine_mode) {
 }
 
 int32_t op_draw_triangle(display_item *item) {
+    if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_Z_BUFFER) == 0)
+        return 0;
+
+    if (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_CULL_FRONT) {
+        printf("cull %s %s\n",
+               (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_CULL_FRONT) ? "FRONT" : "",
+               (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_CULL_BACK) ? "BACK" : "");
+        return 0;
+    }
+
+#if 0
+    if (plugin.rdp.matrix_changes != 9) {
+        //printf("adding problematic triangle, geometry state=%08x\n", plugin.rdp.geometry_mode);
+        return 0;
+    }
+    if (plugin.rdp.matrix_changes < 9 && plugin.rdp.matrix_changes > 5) {
+        printf("adding triangle for matrix change %d\n", plugin.rdp.matrix_changes);
+    }
+#endif
+
     uint8_t indices[3] = {
         (uint8_t)((item->arg32 >> 16) / 10),
         (uint8_t)((item->arg32 >> 8) / 10),
@@ -640,8 +665,10 @@ int32_t op_draw_triangle(display_item *item) {
            (int)plugin.rdp.texture_enabled);
 #endif
     vertex transformed_vertices[3];
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 3; i++) {
         transformed_vertices[i] = plugin.rdp.vertices[indices[i]];
+        //transform_and_light_vertex(&transformed_vertices[i]);
+    }
 
     triangle triangle;
     triangle.v0.position = transformed_vertex_position(&transformed_vertices[0]);
@@ -766,7 +793,6 @@ int32_t op_move_word(display_item *item) {
     case MOVE_WORD_LIGHT_COUNT:
         {
             plugin.rdp.light_count = (item->arg32 - 0x80000000) / 32 - 1;
-            printf("light count = %d\n", plugin.rdp.light_count);
             break;
         }
     case MOVE_WORD_LIGHT_COLOR:
@@ -774,10 +800,16 @@ int32_t op_move_word(display_item *item) {
             uint16_t light_index = item->arg16 >> 5;
             if (light_index == plugin.rdp.light_count)
                 plugin.rdp.ambient_light = item->arg32;
-            printf("setting light index %d (light count %d) to %08x\n",
-                   light_index,
-                   plugin.rdp.light_count,
-                   plugin.rdp.ambient_light);
+            break;
+        }
+    case MOVE_WORD_VERTEX:
+        {
+            printf("moving vertex word\n");
+            break;
+        }
+    default:
+        {
+            printf("unknown moveword: %d\n", (int)type);
             break;
         }
     }
@@ -859,7 +891,6 @@ int32_t op_set_blend_color(display_item *item) {
 int32_t op_set_prim_color(display_item *item) {
     //printf("set prim color\n");
     plugin.rdp.primitive_color = item->arg32;
-    printf("primitive color = %08x\n", plugin.rdp.primitive_color);
     return 0;
 }
 
@@ -1047,6 +1078,8 @@ void interpret_display_list(uint32_t pc) {
 }
 
 void process_display_list(display_list *list) {
+    plugin.rdp.matrix_changes = 0;
+    printf("--- Next frame ---\n");
     //printf("start master DL processing\n");
     interpret_display_list(list->data_ptr);
     //printf("end master DL processing\n");
