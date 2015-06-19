@@ -47,6 +47,8 @@
 #define RDP_GEOMETRY_MODE_CULL_BACK     0x02000
 #define RDP_GEOMETRY_MODE_LIGHTING      0x20000
 
+#define MAX_LIGHTS  16
+
 struct matrix4x4f32 {
     float32x4_t m[4];
 };
@@ -62,6 +64,7 @@ struct registers {
 
 struct vertex {
     vfloat32x4_t position;
+    vfloat32x4_t normal;
 
     int16_t s;
     int16_t t;
@@ -87,6 +90,22 @@ struct combiner {
     uint8_t saa0, sba0, ma0, aa0;
     uint8_t sargb1, sbrgb1, mrgb1, argb1;
     uint8_t saa1, sba1, ma1, aa1;
+};
+
+struct rdp_light {
+    uint32_t rgba0;
+    uint32_t rgba1;
+    int8_t range;
+    int8_t z;
+    int8_t y;
+    int8_t x;
+};
+
+struct light {
+    uint32_t rgba0;
+    float x;
+    float y;
+    float z;
 };
 
 struct rdp {
@@ -116,6 +135,7 @@ struct rdp {
     uint32_t environment_color;
     uint32_t geometry_mode;
 
+    light lights[MAX_LIGHTS];
     uint32_t light_count;
     uint32_t ambient_light;
 

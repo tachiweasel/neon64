@@ -5,6 +5,7 @@
 #include "rdp.h"
 #include "simd.h"
 #include "textures.h"
+#include <math.h>
 #include <stdio.h>
 
 #define MOVE_WORD_MATRIX        0
@@ -17,6 +18,11 @@
 #define MOVE_MEM_LIGHT_0    0x86
 #define MOVE_MEM_LIGHT_1    0x88
 #define MOVE_MEM_LIGHT_2    0x8a
+#define MOVE_MEM_LIGHT_3    0x8c
+#define MOVE_MEM_LIGHT_4    0x8e
+#define MOVE_MEM_LIGHT_5    0x90
+#define MOVE_MEM_LIGHT_6    0x92
+#define MOVE_MEM_LIGHT_7    0x94
 #define MOVE_MEM_MATRIX_1   0x9e
 
 #define DLIST_CALL  0
@@ -150,20 +156,25 @@ struct rdp_vertex {
     int16_t t;
     int16_t s;
 
+    // Doubles as normal (xyza).
     uint32_t rgba;
-};
-
-struct rdp_light {
-    uint32_t rgba0;
-    uint32_t rgba1;
-    int8_t x;
-    int8_t y;
-    int8_t z;
 };
 
 // Converts a segmented address to a flat RDRAM address.
 uint32_t segment_address(uint32_t address) {
     return plugin.rdp.segments[(address >> 24) & 0xf] + (address & 0x00ffffff);
+}
+
+uint8_t rgba_r(uint32_t rgba) {
+    return rgba >> 16;
+}
+
+uint8_t rgba_g(uint32_t rgba) {
+    return rgba >> 8;
+}
+
+uint8_t rgba_b(uint32_t rgba) {
+    return rgba;
 }
 
 #define LOAD_MATRIX_ELEMENT(result, i, j) \
@@ -327,10 +338,28 @@ vfloat32x4_t multiply_matrix4x4f32_float32x4(matrix4x4f32 *a, vfloat32x4_t x) {
     return ax;
 }
 
+vfloat32x4_t transform_normal(matrix4x4f32 *a, vfloat32x4_t v) {
+    vfloat32x4_t result;
+    result.x = v.x * vgetq_lane_f32(a->m[0], 0) + v.y * vgetq_lane_f32(a->m[1], 0) +
+        v.z * vgetq_lane_f32(a->m[2], 0);
+    result.y = v.x * vgetq_lane_f32(a->m[0], 1) + v.y * vgetq_lane_f32(a->m[1], 1) +
+        v.z * vgetq_lane_f32(a->m[2], 1);
+    result.z = v.x * vgetq_lane_f32(a->m[0], 2) + v.y * vgetq_lane_f32(a->m[1], 2) +
+        v.z * vgetq_lane_f32(a->m[2], 2);
+    float norm = sqrtf(result.x * result.x + result.y * result.y + result.z * result.z);
+    if (norm == 0.0) {
+        result.x = result.y = result.z = 0.0;
+    } else {
+        result.x /= norm;
+        result.y /= norm;
+        result.z /= norm;
+    }
+    return result;
+}
+
 void transform_and_light_vertex(vertex *vertex) {
     matrix4x4f32 *projection = &plugin.rdp.projection[plugin.rdp.projection_index];
     matrix4x4f32 *modelview = &plugin.rdp.modelview[plugin.rdp.modelview_index];
-    //matrix4x4f32 tmp = multiply_matrix4x4f32(*modelview, *projection);
 #if 0
     printf("matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
            vgetq_lane_f32(tmp.m[0], 0),
@@ -353,6 +382,7 @@ void transform_and_light_vertex(vertex *vertex) {
 
     vfloat32x4_t position = vertex->position;
 
+#if 0
     if (plugin.rdp.matrix_changes < 11) {
         printf("vertex shading (matrix changes %d): %f,%f,%f,%f -> ",
                plugin.rdp.matrix_changes,
@@ -361,26 +391,32 @@ void transform_and_light_vertex(vertex *vertex) {
                position.z,
                position.w);
     }
+#endif
 
     position = multiply_matrix4x4f32_float32x4(modelview, position);
     position = multiply_matrix4x4f32_float32x4(projection, position);
 
+#if 0
     if (plugin.rdp.matrix_changes < 11) {
         printf("%f,%f,%f,%f -> ", position.x, position.y, position.z, position.w);
     }
 
     // Perspective divide.
-    //position.x /= position.w;
-    //position.y /= position.w;
-    //position.z /= position.w;
-    //position.w = 1.0;
-    //position.w = 3333;
+    position.x /= position.w;
+    position.y /= position.w;
+    position.z /= position.w;
+    position.w = 1.0;
+    position.w = 3333;
 
     if (plugin.rdp.matrix_changes < 11) {
         printf("vertex: %f,%f,%f,%f\n", position.x, position.y, position.z, position.w);
     }
+#endif
 
     vertex->position = position;
+
+    vertex->normal = transform_normal(modelview, vertex->normal);
+    //printf("vertex normal: %f,%f,%f\n", vertex->normal.x, vertex->normal.y, vertex->normal.z);
 
     vertex->s >>= 5;
     vertex->t >>= 5;
@@ -400,8 +436,45 @@ uint32_t bswapu32(uint32_t x) {
 uint32_t transformed_vertex_color(vertex *vertex) {
     if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_SHADE) == 0)
         return plugin.rdp.primitive_color;
-    if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_LIGHTING) != 0)
-        return bswapu32(plugin.rdp.ambient_light);
+    if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_LIGHTING) != 0) {
+        // FIXME(tachiweasel): Should do this earlier, in `transform_and_light_vertex`.
+        uint32_t ambient_light = bswapu32(plugin.rdp.ambient_light);
+        float r = (float)rgba_r(ambient_light);
+        float g = (float)rgba_g(ambient_light);
+        float b = (float)rgba_b(ambient_light);
+        for (uint32_t i = 0; i < plugin.rdp.light_count; i++) {
+            light *light = &plugin.rdp.lights[i];
+            float cos_t = vertex->normal.x * light->x +
+                vertex->normal.y * light->y +
+                vertex->normal.z * light->z;
+            printf("light %d: vertex normal=%f,%f,%f light=%f,%f,%f fCosT=%f\n",
+                   (int)i,
+                   vertex->normal.x,
+                   vertex->normal.y,
+                   vertex->normal.z,
+                   (float)light->x,
+                   (float)light->y,
+                   (float)light->z,
+                   cos_t);
+            if (cos_t > 0.0) {
+                uint32_t light_color = bswapu32(light->rgba0);
+                printf("light color=%d,%d,%d cos=%f\n",
+                       (int)rgba_r(light_color),
+                       (int)rgba_g(light_color),
+                       (int)rgba_b(light_color),
+                       cos_t);
+                r += (float)rgba_r(light_color) * cos_t;
+                g += (float)rgba_g(light_color) * cos_t;
+                b += (float)rgba_b(light_color) * cos_t;
+            }
+        }
+
+        r = fminf(r, 255.0);
+        g = fminf(g, 255.0);
+        b = fminf(b, 255.0);
+        return 0xff000000 | (((uint32_t)r) << 16) | (((uint32_t)g) << 8) | (((uint32_t)b) << 0);
+    }
+
     return bswapu32(vertex->rgba);
 }
 
@@ -529,12 +602,24 @@ int32_t op_set_matrix(display_item *item) {
 
 // NB(tachiweasel): This accesses memory.
 void move_mem_light(display_item *item, uint8_t light_index) {
-    if (light_index != plugin.rdp.light_count)
-        return;
-
     uint32_t addr = segment_address(item->arg32);
-    struct rdp_light *light = (struct rdp_light *)(&plugin.memory.rdram[addr]);
-    plugin.rdp.ambient_light = light->rgba0 | 0x000000ff;
+    struct rdp_light *rdp_light = (struct rdp_light *)(&plugin.memory.rdram[addr]);
+    if (light_index == plugin.rdp.light_count) {
+        // Ambient light.
+        plugin.rdp.ambient_light = rdp_light->rgba0 | 0x000000ff;
+        return;
+    }
+
+    // Regular light.
+    struct light light;
+    float norm = sqrtf((float)rdp_light->x * (float)rdp_light->x +
+                       (float)rdp_light->y * (float)rdp_light->y +
+                       (float)rdp_light->z * (float)rdp_light->z);
+    light.rgba0 = rdp_light->rgba0;
+    light.x = (float)rdp_light->x / norm;
+    light.y = (float)rdp_light->y / norm;
+    light.z = (float)rdp_light->z / norm;
+    plugin.rdp.lights[light_index] = light;
 }
 
 int32_t op_move_mem(display_item *item) {
@@ -547,6 +632,21 @@ int32_t op_move_mem(display_item *item) {
         break;
     case MOVE_MEM_LIGHT_2:
         move_mem_light(item, 2);
+        break;
+    case MOVE_MEM_LIGHT_3:
+        move_mem_light(item, 3);
+        break;
+    case MOVE_MEM_LIGHT_4:
+        move_mem_light(item, 4);
+        break;
+    case MOVE_MEM_LIGHT_5:
+        move_mem_light(item, 5);
+        break;
+    case MOVE_MEM_LIGHT_6:
+        move_mem_light(item, 6);
+        break;
+    case MOVE_MEM_LIGHT_7:
+        move_mem_light(item, 7);
         break;
     case MOVE_MEM_MATRIX_1:
         printf("*** move mem matrix 1\n");
@@ -580,7 +680,14 @@ int32_t op_vertex(display_item *item) {
         vertex->s = rdp_vertex->s;
         vertex->rgba = rdp_vertex->rgba;
 
-        transform_and_light_vertex(&plugin.rdp.vertices[i]);
+        vfloat32x4_t normal;
+        normal.x = rdp_vertex->rgba >> 24;
+        normal.y = rdp_vertex->rgba >> 16;
+        normal.z = rdp_vertex->rgba >> 8;
+        normal.w = rdp_vertex->rgba;
+        vertex->normal = normal;
+
+        transform_and_light_vertex(vertex);
     }
     return 0;
 }
@@ -667,7 +774,6 @@ int32_t op_draw_triangle(display_item *item) {
     vertex transformed_vertices[3];
     for (int i = 0; i < 3; i++) {
         transformed_vertices[i] = plugin.rdp.vertices[indices[i]];
-        //transform_and_light_vertex(&transformed_vertices[i]);
     }
 
     triangle triangle;
@@ -797,6 +903,7 @@ int32_t op_move_word(display_item *item) {
         }
     case MOVE_WORD_LIGHT_COLOR:
         {
+            printf("move word light color\n");
             uint16_t light_index = item->arg16 >> 5;
             if (light_index == plugin.rdp.light_count)
                 plugin.rdp.ambient_light = item->arg32;
