@@ -111,6 +111,8 @@ struct triangle {
     uint32_t rgb_mode;
     uint32_t a_mode;
     uint32_t texture_bounds;
+    float z_base;
+    bool z_buffer_enabled;
 };
 
 void check_shader(GLint shader);

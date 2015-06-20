@@ -415,8 +415,13 @@ void transform_and_light_vertex(vertex *vertex) {
 
     vertex->position = position;
 
+#if 0
+    printf("vertex normal: %f,%f,%f\n", vertex->normal.x, vertex->normal.y, vertex->normal.z);
+#endif
     vertex->normal = transform_normal(modelview, vertex->normal);
-    //printf("vertex normal: %f,%f,%f\n", vertex->normal.x, vertex->normal.y, vertex->normal.z);
+#if 0
+    printf("-> %f,%f,%f\n", vertex->normal.x, vertex->normal.y, vertex->normal.z);
+#endif
 
     vertex->s >>= 5;
     vertex->t >>= 5;
@@ -447,6 +452,7 @@ uint32_t transformed_vertex_color(vertex *vertex) {
             float cos_t = vertex->normal.x * light->x +
                 vertex->normal.y * light->y +
                 vertex->normal.z * light->z;
+#if 0
             printf("light %d: vertex normal=%f,%f,%f light=%f,%f,%f fCosT=%f\n",
                    (int)i,
                    vertex->normal.x,
@@ -456,13 +462,16 @@ uint32_t transformed_vertex_color(vertex *vertex) {
                    (float)light->y,
                    (float)light->z,
                    cos_t);
+#endif
             if (cos_t > 0.0) {
                 uint32_t light_color = bswapu32(light->rgba0);
+#if 0
                 printf("light color=%d,%d,%d cos=%f\n",
                        (int)rgba_r(light_color),
                        (int)rgba_g(light_color),
                        (int)rgba_b(light_color),
                        cos_t);
+#endif
                 r += (float)rgba_r(light_color) * cos_t;
                 g += (float)rgba_g(light_color) * cos_t;
                 b += (float)rgba_b(light_color) * cos_t;
@@ -681,10 +690,10 @@ int32_t op_vertex(display_item *item) {
         vertex->rgba = rdp_vertex->rgba;
 
         vfloat32x4_t normal;
-        normal.x = rdp_vertex->rgba >> 24;
-        normal.y = rdp_vertex->rgba >> 16;
-        normal.z = rdp_vertex->rgba >> 8;
-        normal.w = rdp_vertex->rgba;
+        normal.x = (int8_t)(rdp_vertex->rgba >> 24);
+        normal.y = (int8_t)(rdp_vertex->rgba >> 16);
+        normal.z = (int8_t)(rdp_vertex->rgba >> 8);
+        normal.w = (int8_t)(rdp_vertex->rgba >> 0);
         vertex->normal = normal;
 
         transform_and_light_vertex(vertex);
@@ -739,9 +748,6 @@ uint32_t combiner_mode(uint8_t combine_mode) {
 }
 
 int32_t op_draw_triangle(display_item *item) {
-    if ((plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_Z_BUFFER) == 0)
-        return 0;
-
     if (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_CULL_FRONT) {
         printf("cull %s %s\n",
                (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_CULL_FRONT) ? "FRONT" : "",
@@ -815,6 +821,9 @@ int32_t op_draw_triangle(display_item *item) {
         (combiner_mode(plugin.rdp.combiner.ma0) << 16) |
         (combiner_mode(plugin.rdp.combiner.aa0) << 24);
     triangle.a_mode = 0xff000000;
+
+    triangle.z_base = plugin.rdp.z_base;
+    triangle.z_buffer_enabled = (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_Z_BUFFER) != 0;
 
 #if 0
     if (plugin.rdp.texture_enabled)
@@ -1072,7 +1081,13 @@ int32_t op_clear_geometry_mode(display_item *item) {
 }
 
 int32_t op_set_geometry_mode(display_item *item) {
-    plugin.rdp.geometry_mode = plugin.rdp.geometry_mode | item->arg32;
+    uint32_t new_geometry_mode = plugin.rdp.geometry_mode | item->arg32;
+    if ((new_geometry_mode & RDP_GEOMETRY_MODE_Z_BUFFER) !=
+            (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_Z_BUFFER)) {
+        plugin.rdp.z_base -= Z_BUCKET_SIZE;
+        printf("new z-base = %f\n", plugin.rdp.z_base);
+    }
+    plugin.rdp.geometry_mode = new_geometry_mode;
     return 0;
 }
 

@@ -1,6 +1,7 @@
 // neon64/drawgl.cpp
 
 #include "drawgl.h"
+#include "rdp.h"
 #include "textures.h"
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -366,6 +367,28 @@ uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id) {
     return 0;
 }
 
+float munge_z_coordinate(triangle *triangle, uint8_t vertex_index) {
+    float z_base = triangle->z_base;
+    float original_z, w;
+    switch (vertex_index) {
+    case 0:
+        original_z = triangle->v0.position.z;
+        w = triangle->v0.position.w;
+        break;
+    case 1:
+        original_z = triangle->v1.position.z;
+        w = triangle->v1.position.w;
+        break;
+    case 2:
+        original_z = triangle->v2.position.z;
+        w = triangle->v2.position.w;
+        break;
+    }
+    float z_offset = triangle->z_buffer_enabled ? original_z : 0.0;
+    float z = (z_base + z_offset / w * Z_BUCKET_SIZE) * w;
+    return z;
+}
+
 void init_scene(gl_state *gl_state) {
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->position_buffer));
 
@@ -383,15 +406,15 @@ void init_scene(gl_state *gl_state) {
     for (unsigned i = 0; i < gl_state->triangle_count; i++) {
         triangle_vertices[i * 12 + 0] = gl_state->triangles[i].v0.position.x;
         triangle_vertices[i * 12 + 1] = gl_state->triangles[i].v0.position.y;
-        triangle_vertices[i * 12 + 2] = gl_state->triangles[i].v0.position.z;
+        triangle_vertices[i * 12 + 2] = munge_z_coordinate(&gl_state->triangles[i], 0);
         triangle_vertices[i * 12 + 3] = gl_state->triangles[i].v0.position.w;
         triangle_vertices[i * 12 + 4] = gl_state->triangles[i].v1.position.x;
         triangle_vertices[i * 12 + 5] = gl_state->triangles[i].v1.position.y;
-        triangle_vertices[i * 12 + 6] = gl_state->triangles[i].v1.position.z;
+        triangle_vertices[i * 12 + 6] = munge_z_coordinate(&gl_state->triangles[i], 1);
         triangle_vertices[i * 12 + 7] = gl_state->triangles[i].v1.position.w;
         triangle_vertices[i * 12 + 8] = gl_state->triangles[i].v2.position.x;
         triangle_vertices[i * 12 + 9] = gl_state->triangles[i].v2.position.y;
-        triangle_vertices[i * 12 + 10] = gl_state->triangles[i].v2.position.z;
+        triangle_vertices[i * 12 + 10] = munge_z_coordinate(&gl_state->triangles[i], 2);
         triangle_vertices[i * 12 + 11] = gl_state->triangles[i].v2.position.w;
 
 #if 0
@@ -431,9 +454,9 @@ void init_scene(gl_state *gl_state) {
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->data_t_buffer));
     float *data_t_values = (float *)malloc(sizeof(float) * 3 * gl_state->triangle_count);
     for (unsigned int i = 0; i < gl_state->triangle_count; i++) {
-        data_t_values[i * 3 + 0] = (float)i/* / (float)DATA_TEXTURE_HEIGHT*/;
-        data_t_values[i * 3 + 1] = (float)i/* / (float)DATA_TEXTURE_HEIGHT*/;
-        data_t_values[i * 3 + 2] = (float)i/* / (float)DATA_TEXTURE_HEIGHT*/;
+        data_t_values[i * 3 + 0] = (float)i;
+        data_t_values[i * 3 + 1] = (float)i;
+        data_t_values[i * 3 + 2] = (float)i;
     }
     DO_GL(glBufferData(GL_ARRAY_BUFFER,
                        gl_state->triangle_count * 3 * sizeof(float),

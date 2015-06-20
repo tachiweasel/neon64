@@ -7,7 +7,7 @@ PIC?=-fPIC
 
 TARGET=mupen64plus-video-neon64$(SO)
 
-SRC=displaylist.cpp drawgl.cpp plugin.cpp textures.cpp
+SRC=displaylist.cpp drawgl.cpp plugin.cpp rdp.cpp textures.cpp
 
 $(TARGET):	$(SRC) displaylist.h drawgl.h plugin.h rdp.h textures.h
 	$(CXX) $(CXXFLAGS) -o $@ $(SHARED) $(PIC) $(LIBS) $(SRC)

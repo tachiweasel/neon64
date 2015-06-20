@@ -289,6 +289,7 @@ extern "C" void ProcessDList() {
 
     DO_GL(glBindFramebuffer(GL_FRAMEBUFFER, plugin.plugin_gl_state.framebuffer));
     reset_gl_state(&plugin.gl_state);
+    reset_rdp_for_next_frame(&plugin.rdp);
     process_display_list((display_list *)&plugin.memory.dmem[0x0fc0]);
     init_scene(&plugin.gl_state);
     draw_scene(&plugin.gl_state);
