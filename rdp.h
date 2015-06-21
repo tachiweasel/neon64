@@ -48,11 +48,17 @@
 #define RDP_GEOMETRY_MODE_CULL_BACK     0x02000
 #define RDP_GEOMETRY_MODE_LIGHTING      0x20000
 
+#define RDP_OTHER_MODE_CYCLE_TYPE_MASK  (0x3ULL << 52)
+#define RDP_OTHER_MODE_CYCLE_TYPE_COPY  (2ULL << 52)
+
 #define MAX_LIGHTS  16
 
 #define Z_BUCKET_COUNT          8
 #define Z_BUCKET_SIZE           (2.0 / Z_BUCKET_COUNT)
 #define MAX_Z_BASE              (1.0 - (Z_BUCKET_SIZE / 2.0))
+
+#define FRAMEBUFFER_WIDTH   320
+#define FRAMEBUFFER_HEIGHT  240
 
 struct matrix4x4f32 {
     float32x4_t m[4];
@@ -139,6 +145,7 @@ struct rdp {
     uint32_t primitive_color;
     uint32_t environment_color;
     uint32_t geometry_mode;
+    uint64_t other_mode;
 
     light lights[MAX_LIGHTS];
     uint32_t light_count;

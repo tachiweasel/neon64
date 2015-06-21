@@ -369,22 +369,23 @@ uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id) {
 
 float munge_z_coordinate(triangle *triangle, uint8_t vertex_index) {
     float z_base = triangle->z_base;
-    float original_z, w;
+    float z_offset, w;
     switch (vertex_index) {
     case 0:
-        original_z = triangle->v0.position.z;
+        z_offset = triangle->v0.position.z;
         w = triangle->v0.position.w;
         break;
     case 1:
-        original_z = triangle->v1.position.z;
+        z_offset = triangle->v1.position.z;
         w = triangle->v1.position.w;
         break;
     case 2:
-        original_z = triangle->v2.position.z;
+        z_offset = triangle->v2.position.z;
         w = triangle->v2.position.w;
         break;
     }
-    float z_offset = triangle->z_buffer_enabled ? original_z : 0.0;
+    if (!triangle->z_buffer_enabled)
+        z_offset = 0.0;
     float z = (z_base + z_offset / w * Z_BUCKET_SIZE) * w;
     return z;
 }
@@ -551,8 +552,6 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glViewport(0, 0, FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT));
     DO_GL(glEnable(GL_TEXTURE_2D));
     DO_GL(glEnable(GL_DEPTH_TEST));
-    DO_GL(glEnable(GL_CULL_FACE));
-    DO_GL(glCullFace(GL_BACK));
     DO_GL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->position_buffer));

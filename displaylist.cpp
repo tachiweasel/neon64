@@ -487,11 +487,13 @@ uint32_t transformed_vertex_color(vertex *vertex) {
     return bswapu32(vertex->rgba);
 }
 
+uint32_t pack_texture_coord(float s, float t) {
+    return ((abs(t) & 0xff) << 24) | (((abs(t) >> 8) & 0xff) << 16) |
+        ((abs(s) & 0xff) << 8) | (((abs(s) >> 8) & 0xff) << 0);
+}
+
 uint32_t transformed_vertex_texture_coord(vertex *vertex) {
-    return ((abs(vertex->t) & 0xff) << 24) |
-        (((abs(vertex->t) >> 8) & 0xff) << 16) |
-        ((abs(vertex->s) & 0xff) << 8) |
-        (((abs(vertex->s) >> 8) & 0xff) << 0);
+    return pack_texture_coord(vertex->s, vertex->t);
 }
 
 int32_t op_noop(display_item *item) {
@@ -844,6 +846,84 @@ int32_t op_draw_triangle(display_item *item) {
 }
 
 int32_t op_draw_texture_rectangle(display_item *item) {
+    uint16_t screen_right = (((uint16_t)item->arg8 << 4) | (item->arg16 >> 12)) >> 2;
+    uint16_t screen_bottom = (item->arg16 & 0xfff) >> 2;
+    uint8_t tile = (item->arg32 >> 24) & 0x07;
+    uint16_t screen_left = ((item->arg32 >> 12) & 0xfff) >> 2;
+    uint16_t screen_top = (item->arg32 & 0xfff) >> 2;
+
+    uint16_t *texture_coords = (uint16_t *)&item[1];
+    uint16_t texture_left = texture_coords[2] / 32;
+    uint16_t texture_top = texture_coords[3] / 32;
+    uint16_t texture_right =
+        ((uint32_t)texture_coords[7] * (uint32_t)(screen_right - screen_left)) / 1024;
+    uint16_t texture_bottom =
+        ((uint32_t)texture_coords[6] * (uint32_t)(screen_bottom - screen_top)) / 1024;
+
+    if ((plugin.rdp.other_mode & RDP_OTHER_MODE_CYCLE_TYPE_MASK) ==
+            RDP_OTHER_MODE_CYCLE_TYPE_COPY) {
+        texture_right /= 4;
+    }
+
+#if 0
+    printf("texture rectangle: screen (%d,%d)-(%d,%d) texture (%d,%d)-(%d,%d) tile=%d\n",
+           (int)screen_left,
+           (int)screen_top,
+           (int)screen_right,
+           (int)screen_bottom,
+           (int)texture_left,
+           (int)texture_top,
+           (int)texture_right,
+           (int)texture_bottom,
+           (int)tile);
+#endif
+
+    float transformed_screen_left = (float)screen_left / FRAMEBUFFER_WIDTH * 2.0 - 1.0;
+    float transformed_screen_right = (float)screen_right / FRAMEBUFFER_WIDTH * 2.0 - 1.0;
+    float transformed_screen_top = -((float)screen_top / FRAMEBUFFER_HEIGHT * 2.0 - 1.0);
+    float transformed_screen_bottom = -((float)screen_bottom / FRAMEBUFFER_HEIGHT * 2.0 - 1.0);
+
+    triangle triangles[2];
+    for (int i = 0; i < 2; i++) {
+        triangles[i].v0.position.z = 0.0;
+        triangles[i].v1.position.z = 0.0;
+        triangles[i].v2.position.z = 0.0;
+        triangles[i].v0.position.w = 1.0;
+        triangles[i].v1.position.w = 1.0;
+        triangles[i].v2.position.w = 1.0;
+        triangles[i].v0.shade = 0;
+        triangles[i].v1.shade = 0;
+        triangles[i].v2.shade = 0;
+
+        triangles[i].sa_color = 0.0;
+        triangles[i].sb_color = 0.0;
+        triangles[i].m_color = 0.0;
+        triangles[i].a_color = 0.0;
+
+        triangles[i].rgb_mode = 0xffffffff;
+        triangles[i].a_mode = 0xffffffff;
+
+        triangles[i].texture_bounds = bounds_of_texture_with_id(&plugin.gl_state,
+                                                                plugin.rdp.texture_id);
+    }
+
+    triangles[0].v0.position.x = transformed_screen_left;
+    triangles[0].v0.position.y = transformed_screen_top;
+    triangles[0].v0.texture_coord = pack_texture_coord(texture_left, texture_top);
+    triangles[0].v1.position.x = transformed_screen_right;
+    triangles[0].v1.position.y = transformed_screen_top;
+    triangles[0].v1.texture_coord = pack_texture_coord(texture_right, texture_top);
+    triangles[0].v2.position.x = transformed_screen_left;
+    triangles[0].v2.position.y = transformed_screen_bottom;
+    triangles[0].v2.texture_coord = pack_texture_coord(texture_left, texture_bottom);
+    triangles[1].v2.position.x = transformed_screen_right;
+    triangles[1].v2.position.y = transformed_screen_bottom;
+    triangles[1].v2.texture_coord = pack_texture_coord(texture_right, texture_bottom);
+    triangles[1].v0 = triangles[0].v1;
+    triangles[1].v1 = triangles[0].v2;
+    add_triangle(&plugin.gl_state, &triangles[0]);
+    add_triangle(&plugin.gl_state, &triangles[1]);
+
     return 16;
 }
 
@@ -1091,6 +1171,26 @@ int32_t op_set_geometry_mode(display_item *item) {
     return 0;
 }
 
+int32_t op_set_other_mode_low(display_item *item) {
+    uint8_t shift = (item->arg16 >> 8);
+    uint8_t length = item->arg16;
+    uint32_t data = item->arg32;
+
+    uint64_t mask = ((1ULL << (uint32_t)length) - 1) << shift;
+    plugin.rdp.other_mode = (plugin.rdp.other_mode & ~mask) | (uint64_t)data;
+    return 0;
+}
+
+int32_t op_set_other_mode_high(display_item *item) {
+    uint8_t shift = (item->arg16 >> 8);
+    uint8_t length = item->arg16;
+    uint32_t data = item->arg32;
+
+    uint64_t mask = ((1ULL << (uint64_t)length) - 1) << ((uint32_t)shift + 32);
+    plugin.rdp.other_mode = (plugin.rdp.other_mode & ~mask) | ((uint64_t)data << 32);
+    return 0;
+}
+
 int32_t op_end_display_list(display_item *item) {
     return -1;
 }
@@ -1137,8 +1237,8 @@ display_op_t OPS[256] = {
     op_clear_geometry_mode,             // b6
     op_set_geometry_mode,               // b7
     op_end_display_list,                // b8
-    op_noop,                            // b9
-    op_noop,                            // ba
+    op_set_other_mode_low,              // b9
+    op_set_other_mode_high,             // ba
     op_texture,                         // bb
     op_move_word,                       // bc
     op_pop_matrix,                      // bd

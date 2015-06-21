@@ -12,9 +12,6 @@
 #include <OpenGL/gl.h>
 #endif
 
-#define FRAMEBUFFER_WIDTH 320
-#define FRAMEBUFFER_HEIGHT 240
-
 #define COMBINE_MODE_COLOR      0x00
 #define COMBINE_MODE_SHADE      0x7f
 #define COMBINE_MODE_TEXTURE    0xff
