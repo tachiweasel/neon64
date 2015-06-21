@@ -816,7 +816,7 @@ int32_t op_draw_triangle(display_item *item) {
         (combiner_mode(plugin.rdp.combiner.ma0) << 16) |
         (combiner_mode(plugin.rdp.combiner.aa0) << 24);
 
-    triangle.texture_bounds = bounds_of_texture_with_id(&plugin.gl_state, plugin.rdp.texture_id);
+    populate_triangle_texture_info(&triangle, &plugin.gl_state, plugin.rdp.texture_id);
 
 #if 0
     printf("rgb mode=%08x mode=(%s-%s)*%s+%s (primitive %08x, texture %u)\n",
@@ -906,8 +906,7 @@ int32_t op_draw_texture_rectangle(display_item *item) {
         triangles[i].rgb_mode = 0xffffffff;
         triangles[i].a_mode = 0xffffffff;
 
-        triangles[i].texture_bounds = bounds_of_texture_with_id(&plugin.gl_state,
-                                                                plugin.rdp.texture_id);
+        populate_triangle_texture_info(&triangles[i], &plugin.gl_state, plugin.rdp.texture_id);
     }
 
     triangles[0].v0.position.x = transformed_screen_left;
@@ -1058,8 +1057,10 @@ int32_t op_set_tile(display_item *item) {
     tile->format = (item->arg8 >> 5) & 0x7;
     tile->size = (item->arg8 >> 3) & 0x3;
     tile->addr = item->arg16 & 0x1ff;
+    tile->clamp_t = (item->arg32 >> 19) & 0x1;
     tile->mask_t = (item->arg32 >> 14) & 0xf;
     tile->shift_t = (item->arg32 >> 10) & 0xf;
+    tile->clamp_s = (item->arg32 >> 9) & 0x1;
     tile->mask_s = (item->arg32 >> 4) & 0xf;
     tile->shift_s = (item->arg32 >> 0) & 0xf;
 #if 0

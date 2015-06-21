@@ -53,6 +53,8 @@ struct gl_texture_info {
     uint32_t height;
     uint32_t id;
     uint32_t hash;
+    bool clamp_s;
+    bool clamp_t;
 };
 
 struct gl_state {
@@ -108,6 +110,7 @@ struct triangle {
     uint32_t rgb_mode;
     uint32_t a_mode;
     uint32_t texture_bounds;
+    uint32_t texture_mode;
     float z_base;
     bool z_buffer_enabled;
 };
@@ -116,7 +119,7 @@ void check_shader(GLint shader);
 void init_gl_state(gl_state *gl_state);
 void add_triangle(gl_state *gl_state, triangle *triangle);
 uint32_t id_of_texture_with_hash(gl_state *gl_state, uint32_t hash);
-uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id);
+void populate_triangle_texture_info(triangle *triangle, gl_state *gl_state, uint32_t id);
 uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture);
 void reset_gl_state(gl_state *gl_state);
 void init_scene(gl_state *gl_state);

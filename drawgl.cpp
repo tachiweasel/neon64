@@ -27,6 +27,7 @@
 #define COLUMN_TEXTURE_COORD_1  10
 #define COLUMN_TEXTURE_COORD_2  11
 #define COLUMN_TEXTURE_BOUNDS   12
+#define COLUMN_TEXTURE_MODE     13
 
 const GLchar *VERTEX_SHADER =
 #ifdef GLES
@@ -79,11 +80,19 @@ const GLchar *FRAGMENT_SHADER =
     "   vec2 textureCoord = vLambda[0] * textureCoord0 + vLambda[1] * textureCoord1 + \n"
     "       vLambda[2] * textureCoord2;\n"
     "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, dataT)) * 16.0 * 255.0;\n"
+    "   vec4 textureMode = texture2D(uData, vec2(13.0 / 16.0, dataT));\n"
     "   /* Convert texture coords to [0.0, 1.0). */\n"
     "   if (texturePixelBounds.z == 0.0 || texturePixelBounds.w == 0.0)\n"
     "       texturePixelBounds.zw = vec2(1.0, 1.0);\n"
-    "   textureCoord.s = mod(floor(textureCoord.s) + 0.5, texturePixelBounds.z);\n"
-    "   textureCoord.t = mod(floor(textureCoord.t) + 0.5, texturePixelBounds.w);\n"
+    "   /* Wrap or clamp, depending on mode. */\n"
+    "   if (textureMode[0] == 0.0)\n"
+    "       textureCoord.s = mod(floor(textureCoord.s) + 0.5, texturePixelBounds.z);\n"
+    "   else\n"
+    "       textureCoord.s = clamp(floor(textureCoord.s), 0.0, texturePixelBounds.z - 1.0) + .5;\n"
+    "   if (textureMode[1] == 0.0)\n"
+    "       textureCoord.t = mod(floor(textureCoord.t) + 0.5, texturePixelBounds.w);\n"
+    "   else\n"
+    "       textureCoord.t = clamp(floor(textureCoord.t), 0.0, texturePixelBounds.w - 1.0) + .5;\n"
     "   textureCoord = textureCoord / texturePixelBounds.zw;\n"
     //"   textureCoord = mod(textureCoord, 1.0);\n"
     //"   if (textureCoord.x < 0.1)\n"
@@ -202,7 +211,10 @@ uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture) {
     gl_texture_info texture_info;
     texture_info.id = gl_state->next_texture_id;
     gl_state->next_texture_id++;
+
     texture_info.hash = texture->hash;
+    texture_info.clamp_s = texture->clamp_s;
+    texture_info.clamp_t = texture->clamp_t;
 
     // Find a spot for the texture.
     bool found = false;
@@ -366,17 +378,19 @@ void set_column(gl_state *gl_state, int y, int column, uint32_t value) {
     gl_state->data_texture_buffer[y * DATA_TEXTURE_WIDTH + column] = value;
 }
 
-uint32_t bounds_of_texture_with_id(gl_state *gl_state, uint32_t id) {
+void populate_triangle_texture_info(triangle *triangle, gl_state *gl_state, uint32_t id) {
     for (uint32_t i = 0; i < gl_state->texture_info_count; i++) {
         gl_texture_info *texture_info = &gl_state->texture_info[i];
         if (texture_info->id != id)
             continue;
-        return ((texture_info->x / MIN_TEXTURE_SIZE) << 0) |
+        triangle->texture_bounds = ((texture_info->x / MIN_TEXTURE_SIZE) << 0) |
             ((texture_info->y / MIN_TEXTURE_SIZE) << 8) |
             ((texture_info->width / MIN_TEXTURE_SIZE) << 16) |
             ((texture_info->height / MIN_TEXTURE_SIZE) << 24);
+        triangle->texture_mode = (texture_info->clamp_s ? 0x00ff : 0) |
+            (texture_info->clamp_t ? 0xff00 : 0);
+        return;
     }
-    return 0;
 }
 
 float munge_z_coordinate(triangle *triangle, uint8_t vertex_index) {
@@ -494,6 +508,7 @@ void init_scene(gl_state *gl_state) {
         set_column(gl_state, y, COLUMN_TEXTURE_COORD_1, triangles[y].v1.texture_coord);
         set_column(gl_state, y, COLUMN_TEXTURE_COORD_2, triangles[y].v2.texture_coord);
         set_column(gl_state, y, COLUMN_TEXTURE_BOUNDS, triangles[y].texture_bounds);
+        set_column(gl_state, y, COLUMN_TEXTURE_MODE, triangles[y].texture_mode);
 
 #if 0
         if (triangles[y].texture_bounds != 0) {
@@ -565,6 +580,7 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glEnable(GL_TEXTURE_2D));
     DO_GL(glEnable(GL_DEPTH_TEST));
     DO_GL(glEnable(GL_BLEND));
+    DO_GL(glDepthFunc(GL_LEQUAL));
     DO_GL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
     DO_GL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 

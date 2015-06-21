@@ -94,6 +94,8 @@ struct tile {
     uint8_t mask_t;
     uint8_t shift_s;
     uint8_t shift_t;
+    bool clamp_s;
+    bool clamp_t;
 };
 
 struct combiner {

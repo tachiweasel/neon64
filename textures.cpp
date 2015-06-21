@@ -70,28 +70,13 @@ swizzled_texture load_texture_metadata(uint8_t tile_index) {
                              texture.width * texture.height * sizeof(uint16_t),
                              SBOX_HASH_SEED);
 
+    texture.clamp_s = tile->clamp_s;
+    texture.clamp_t = tile->clamp_t;
     return texture;
 }
 
-void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
+static void load_texture_pixels_rgba16(swizzled_texture *texture) {
     uint16_t *origin = (uint16_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
-    texture->pixels = (uint32_t *)malloc(texture->width * texture->height * sizeof(uint32_t));
-
-#if 0
-	char buf[256];
-	snprintf(buf, sizeof(buf), "/tmp/neon64tex%d.tga", (int)texture->hash);
-    FILE *f = fopen(buf, "w");
-	char header[18] = { 0 };
-	header[2] = 2;
-	header[12] = texture->width & 0xff;
-	header[13] = (texture->width >> 8) & 0xff;
-	header[14] = texture->height & 0xff;
-	header[15] = (texture->height >> 8) & 0xff;
-	header[16] = 24;
-	fwrite(header, 1, sizeof(header), f);
-    fprintf(stderr, "--- starting %dx%d---\n", (int)texture->width, (int)texture->height);
-#endif
-
     uint32_t *dest = texture->pixels;
     for (int32_t y = 0; y < texture->height; y++) {
         for (uint32_t x = 0; x < texture->width; x += 2) {
@@ -113,6 +98,57 @@ void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
 
             dest = &dest[2];
         }
+    }
+}
+
+static void load_texture_pixels_ia16(swizzled_texture *texture) {
+    uint16_t *origin = (uint16_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
+    uint32_t *dest = texture->pixels;
+    for (int32_t y = 0; y < texture->height; y++) {
+        for (uint32_t x = 0; x < texture->width; x += 2) {
+            uint16_t pixel = origin[y * texture->width + x + 1];
+
+            dest[0] = ((pixel >> 8) << 0) | ((pixel >> 8) << 8) | ((pixel >> 8) << 16) |
+                ((pixel & 0xff) << 24);
+
+            pixel = origin[y * texture->width + x];
+            dest[1] = ((pixel >> 8) << 0) | ((pixel >> 8) << 8) | ((pixel >> 8) << 16) |
+                ((pixel & 0xff) << 24);
+
+            dest = &dest[2];
+        }
+    }
+}
+
+void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
+    texture->pixels = (uint32_t *)malloc(texture->width * texture->height * sizeof(uint32_t));
+
+    tile *tile = &plugin.rdp.tiles[tile_index];
+    printf("loading texture pixels for texture format %d, bpp %d\n", tile->format, tile->size);
+
+#if 0
+	char buf[256];
+	snprintf(buf, sizeof(buf), "/tmp/neon64tex%d.tga", (int)texture->hash);
+    FILE *f = fopen(buf, "w");
+	char header[18] = { 0 };
+	header[2] = 2;
+	header[12] = texture->width & 0xff;
+	header[13] = (texture->width >> 8) & 0xff;
+	header[14] = texture->height & 0xff;
+	header[15] = (texture->height >> 8) & 0xff;
+	header[16] = 24;
+	fwrite(header, 1, sizeof(header), f);
+    fprintf(stderr, "--- starting %dx%d---\n", (int)texture->width, (int)texture->height);
+#endif
+
+    // TODO(tachiweasel): CI, I formats.
+    // TODO(tachiweasel): BPP other than 2.
+    switch (tile->format) {
+    case TEXTURE_FORMAT_IA:
+        load_texture_pixels_ia16(texture);
+        break;
+    default:
+        load_texture_pixels_rgba16(texture);
     }
 
 #if 0
