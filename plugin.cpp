@@ -241,6 +241,7 @@ void draw_scaled_scene() {
     DO_GL(glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT));
     DO_GL(glEnable(GL_TEXTURE_2D));
     DO_GL(glDisable(GL_DEPTH_TEST));
+    DO_GL(glDisable(GL_BLEND));
 
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, plugin.plugin_gl_state.position_buffer));
     DO_GL(glVertexAttribPointer(plugin.plugin_gl_state.position_attribute,
