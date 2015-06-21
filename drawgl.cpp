@@ -78,22 +78,26 @@ const GLchar *FRAGMENT_SHADER =
     "                             rawTextureCoord2[2] * 65536.0 + rawTextureCoord2[3] * 256.0);\n"
     "   vec2 textureCoord = vLambda[0] * textureCoord0 + vLambda[1] * textureCoord1 + \n"
     "       vLambda[2] * textureCoord2;\n"
-    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, dataT)) * 4096.0;\n"
+    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, dataT)) * 16.0 * 255.0;\n"
     "   /* Convert texture coords to [0.0, 1.0). */\n"
     "   if (texturePixelBounds.z == 0.0 || texturePixelBounds.w == 0.0)\n"
     "       texturePixelBounds.zw = vec2(1.0, 1.0);\n"
+    "   textureCoord.s = mod(floor(textureCoord.s) + 0.5, texturePixelBounds.z);\n"
+    "   textureCoord.t = mod(floor(textureCoord.t) + 0.5, texturePixelBounds.w);\n"
     "   textureCoord = textureCoord / texturePixelBounds.zw;\n"
-    "   textureCoord = mod(textureCoord, 1.0);\n"
+    //"   textureCoord = mod(textureCoord, 1.0);\n"
+    //"   if (textureCoord.x < 0.1)\n"
+    //"       textureCoord.x = 0.1;\n"
+    //"   if (textureCoord.y < 0.1)\n"
+    //"       textureCoord.y = 0.1;\n"
     "   /* Translate texture coords onto the atlas. */\n"
     "   vec4 textureBounds = texturePixelBounds / 1024.0;\n"
     "   textureCoord = (textureCoord * textureBounds.zw) + textureBounds.xy;\n"
     "   vec4 textureColor = texture2D(uTexture, textureCoord);\n"
-    //"   vec4 textureColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
     "   if (rgbMode[0] > 0.0 && rgbMode[0] < 1.0)\n"
     "       sa.rgb = shadeColor.rgb;\n"
     "   else if (rgbMode[0] == 1.0)\n"
     "       sa.rgb = textureColor.rgb;\n"
-    //"   sa.rgb = vec3(1.0, 1.0, 1.0);\n"
     "   if (rgbMode[1] > 0.0 && rgbMode[1] < 1.0)\n"
     "       sb.rgb = shadeColor.rgb;\n"
     "   else if (rgbMode[1] == 1.0)\n"
@@ -122,7 +126,10 @@ const GLchar *FRAGMENT_SHADER =
     "       a.a = shadeColor.a;\n"
     "   else if (aMode[3] == 1.0)\n"
     "       a.a = textureColor.a;\n"
-    "   gl_FragColor = (sa - sb) * m + a;\n"
+    "   vec4 fragColor = (sa - sb) * m + a;\n"
+    "   if (fragColor.a == 0.0)\n"
+    "       discard;\n"
+    "   gl_FragColor = fragColor;\n"
 #if 0
     "   if (fract(vDataT) != 0.0)\n"
     "       gl_FragColor = vec4(fract(vDataT), 0.0, 0.0, 1.0);\n"
@@ -221,10 +228,15 @@ uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture) {
     }
 
     // Copy pixels in.
+    int r = rand() % 256; 
+    int g = rand() % 256; 
+    int b = rand() % 256;
+    uint32_t color = r | (g << 8) | (b << 16) | 0xff000000;
     for (uint16_t y = 0; y < texture_info.height; y++) {
         for (uint16_t x = 0; x < texture_info.width; x++) {
             gl_state->texture_buffer[(texture_info.y + y) * TEXTURE_WIDTH + (texture_info.x + x)]
                 = texture->pixels[y * texture_info.width + x];
+                //= color;
         }
     }
 
@@ -287,8 +299,8 @@ void init_textures(gl_state *gl_state) {
                        GL_RGBA,
                        GL_UNSIGNED_BYTE,
                        gl_state->texture_buffer));
-    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+    DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
     DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT));
     DO_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT));
 }
@@ -552,6 +564,8 @@ void draw_scene(gl_state *gl_state) {
     DO_GL(glViewport(0, 0, FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT));
     DO_GL(glEnable(GL_TEXTURE_2D));
     DO_GL(glEnable(GL_DEPTH_TEST));
+    DO_GL(glEnable(GL_BLEND));
+    DO_GL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
     DO_GL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     DO_GL(glBindBuffer(GL_ARRAY_BUFFER, gl_state->position_buffer));

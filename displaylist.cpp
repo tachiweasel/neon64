@@ -44,7 +44,7 @@ static const char *COMBINE_MODE_NAMES[] = {
     "TEXEL1_ALPHA",
     "PRIMITIVE_ALPHA",
     "SHADE_ALPHA",
-    "ENV_ALPHA",
+    "ENVIRONMENT_ALPHA",
     "LOD_FRACTION",
     "PRIM_LOD_FRAC",
     "NOISE",
@@ -84,7 +84,7 @@ static const uint8_t M_RGB_TABLE[32] = {
     RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_COMBINED_ALPHA,
     RDP_COMBINE_MODE_TEXEL0_ALPHA,      RDP_COMBINE_MODE_TEXEL1_ALPHA,
     RDP_COMBINE_MODE_PRIMITIVE_ALPHA,   RDP_COMBINE_MODE_SHADE_ALPHA,
-    RDP_COMBINE_MODE_ENV_ALPHA,         RDP_COMBINE_MODE_LOD_FRACTION,
+    RDP_COMBINE_MODE_ENVIRONMENT_ALPHA,         RDP_COMBINE_MODE_LOD_FRACTION,
     RDP_COMBINE_MODE_PRIM_LOD_FRAC,     RDP_COMBINE_MODE_K5,
     RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
     RDP_COMBINE_MODE_ZERO,              RDP_COMBINE_MODE_ZERO,
@@ -106,28 +106,28 @@ static const uint8_t A_RGB_TABLE[8] = {
 static const uint8_t SA_A_TABLE[8] = {
     RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0_ALPHA,
     RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
-    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENVIRONMENT_ALPHA,
     RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
 };
 
 static const uint8_t SB_A_TABLE[8] = {
     RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0_ALPHA,
     RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
-    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENVIRONMENT_ALPHA,
     RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
 };
 
 static const uint8_t M_A_TABLE[8] = {
     RDP_COMBINE_MODE_LOD_FRACTION,      RDP_COMBINE_MODE_TEXEL0_ALPHA,
     RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
-    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENVIRONMENT_ALPHA,
     RDP_COMBINE_MODE_PRIM_LOD_FRAC,     RDP_COMBINE_MODE_ZERO,
 };
 
 static const uint8_t A_A_TABLE[8] = {
     RDP_COMBINE_MODE_COMBINED,          RDP_COMBINE_MODE_TEXEL0_ALPHA,
     RDP_COMBINE_MODE_TEXEL1_ALPHA,      RDP_COMBINE_MODE_PRIMITIVE_ALPHA,
-    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENV_ALPHA,
+    RDP_COMBINE_MODE_SHADE_ALPHA,       RDP_COMBINE_MODE_ENVIRONMENT_ALPHA,
     RDP_COMBINE_MODE_ONE,               RDP_COMBINE_MODE_ZERO,
 };
 
@@ -720,8 +720,10 @@ int32_t op_call_display_list(display_item *item) {
 uint32_t combiner_color_component(uint32_t mode) {
     switch (mode) {
     case RDP_COMBINE_MODE_PRIMITIVE:
+    case RDP_COMBINE_MODE_PRIMITIVE_ALPHA:
         return plugin.rdp.primitive_color;
     case RDP_COMBINE_MODE_ENVIRONMENT:
+    case RDP_COMBINE_MODE_ENVIRONMENT_ALPHA:
         return plugin.rdp.environment_color;
     case RDP_COMBINE_MODE_ONE:
         return ~0;
@@ -741,8 +743,11 @@ uint32_t combiner_mode(uint8_t combine_mode) {
     switch (combine_mode) {
     case RDP_COMBINE_MODE_TEXEL0:
     case RDP_COMBINE_MODE_TEXEL1:
+    case RDP_COMBINE_MODE_TEXEL0_ALPHA:
+    case RDP_COMBINE_MODE_TEXEL1_ALPHA:
         return 0xff;
     case RDP_COMBINE_MODE_SHADE:
+    case RDP_COMBINE_MODE_SHADE_ALPHA:
         return 0x80;
     default:
         return 0x00;
@@ -799,11 +804,17 @@ int32_t op_draw_triangle(display_item *item) {
     triangle.sb_color = combiner_color(plugin.rdp.combiner.sbrgb0, plugin.rdp.combiner.sba0);
     triangle.m_color = combiner_color(plugin.rdp.combiner.mrgb0, plugin.rdp.combiner.ma0);
     triangle.a_color = combiner_color(plugin.rdp.combiner.argb0, plugin.rdp.combiner.aa0);
+
     triangle.rgb_mode =
         (combiner_mode(plugin.rdp.combiner.sargb0) << 0) |
         (combiner_mode(plugin.rdp.combiner.sbrgb0) << 8) |
         (combiner_mode(plugin.rdp.combiner.mrgb0) << 16) |
         (combiner_mode(plugin.rdp.combiner.argb0) << 24);
+    triangle.a_mode =
+        (combiner_mode(plugin.rdp.combiner.saa0) << 0) |
+        (combiner_mode(plugin.rdp.combiner.sba0) << 8) |
+        (combiner_mode(plugin.rdp.combiner.ma0) << 16) |
+        (combiner_mode(plugin.rdp.combiner.aa0) << 24);
 
     triangle.texture_bounds = bounds_of_texture_with_id(&plugin.gl_state, plugin.rdp.texture_id);
 
@@ -817,12 +828,6 @@ int32_t op_draw_triangle(display_item *item) {
            plugin.rdp.primitive_color,
            plugin.rdp.texture_id);
 #endif
-    triangle.a_mode =
-        (combiner_mode(plugin.rdp.combiner.saa0) << 0) |
-        (combiner_mode(plugin.rdp.combiner.sba0) << 8) |
-        (combiner_mode(plugin.rdp.combiner.ma0) << 16) |
-        (combiner_mode(plugin.rdp.combiner.aa0) << 24);
-    triangle.a_mode = 0xff000000;
 
     triangle.z_base = plugin.rdp.z_base;
     triangle.z_buffer_enabled = (plugin.rdp.geometry_mode & RDP_GEOMETRY_MODE_Z_BUFFER) != 0;
@@ -865,7 +870,6 @@ int32_t op_draw_texture_rectangle(display_item *item) {
         texture_right /= 4;
     }
 
-#if 0
     printf("texture rectangle: screen (%d,%d)-(%d,%d) texture (%d,%d)-(%d,%d) tile=%d\n",
            (int)screen_left,
            (int)screen_top,
@@ -876,7 +880,6 @@ int32_t op_draw_texture_rectangle(display_item *item) {
            (int)texture_right,
            (int)texture_bottom,
            (int)tile);
-#endif
 
     float transformed_screen_left = (float)screen_left / FRAMEBUFFER_WIDTH * 2.0 - 1.0;
     float transformed_screen_right = (float)screen_right / FRAMEBUFFER_WIDTH * 2.0 - 1.0;
@@ -1141,8 +1144,10 @@ int32_t op_set_combine(display_item *item) {
     plugin.rdp.combiner.ma0 = M_A_TABLE[(mux0 >> 9) & 0x07];
     plugin.rdp.combiner.aa0 = A_A_TABLE[(mux1 >> 9) & 0x07];
 
-    //printf("set combine(mux0=%08x, mux1=%08x)\n", mux0, mux1);
-    //dump_combiner(&plugin.rdp.combiner);
+#if 0
+    printf("set combine(mux0=%08x, mux1=%08x)\n", mux0, mux1);
+    dump_combiner(&plugin.rdp.combiner);
+#endif
     return 0;
 }
 

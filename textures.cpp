@@ -105,11 +105,11 @@ void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
 #endif
 
             dest[0] = (((pixel >> 1) & 0x1f) << 19) | (((pixel >> 6) & 0x1f) << 11) |
-                (((pixel >> 11) & 0x1f) << 3);
+                (((pixel >> 11) & 0x1f) << 3) | ((pixel & 1) ? 0xff000000 : 0);
 
             pixel = origin[y * texture->width + x];
             dest[1] = (((pixel >> 1) & 0x1f) << 19) | (((pixel >> 6) & 0x1f) << 11) |
-                (((pixel >> 11) & 0x1f) << 3);
+                (((pixel >> 11) & 0x1f) << 3) | ((pixel & 1) ? 0xff000000 : 0);
 
             dest = &dest[2];
         }
