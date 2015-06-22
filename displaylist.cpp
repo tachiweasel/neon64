@@ -7,6 +7,7 @@
 #include "textures.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #define MOVE_WORD_MATRIX        0
 #define MOVE_WORD_LIGHT_COUNT   2
@@ -870,6 +871,7 @@ int32_t op_draw_texture_rectangle(display_item *item) {
         texture_right /= 4;
     }
 
+#if 0
     printf("texture rectangle: screen (%d,%d)-(%d,%d) texture (%d,%d)-(%d,%d) tile=%d\n",
            (int)screen_left,
            (int)screen_top,
@@ -880,6 +882,7 @@ int32_t op_draw_texture_rectangle(display_item *item) {
            (int)texture_right,
            (int)texture_bottom,
            (int)tile);
+#endif
 
     float transformed_screen_left = (float)screen_left / FRAMEBUFFER_WIDTH * 2.0 - 1.0;
     float transformed_screen_right = (float)screen_right / FRAMEBUFFER_WIDTH * 2.0 - 1.0;
@@ -888,6 +891,8 @@ int32_t op_draw_texture_rectangle(display_item *item) {
 
     triangle triangles[2];
     for (int i = 0; i < 2; i++) {
+        memset(&triangles[i], '\0', sizeof(triangles[0]));
+
         triangles[i].v0.position.z = 0.0;
         triangles[i].v1.position.z = 0.0;
         triangles[i].v2.position.z = 0.0;
@@ -1057,24 +1062,24 @@ int32_t op_set_tile(display_item *item) {
     tile->format = (item->arg8 >> 5) & 0x7;
     tile->size = (item->arg8 >> 3) & 0x3;
     tile->addr = item->arg16 & 0x1ff;
+    tile->line = (item->arg16 >> 19) | ((uint32_t)(item->arg8 & 0x3) << 7);
     tile->clamp_t = (item->arg32 >> 19) & 0x1;
     tile->mask_t = (item->arg32 >> 14) & 0xf;
     tile->shift_t = (item->arg32 >> 10) & 0xf;
     tile->clamp_s = (item->arg32 >> 9) & 0x1;
     tile->mask_s = (item->arg32 >> 4) & 0xf;
     tile->shift_s = (item->arg32 >> 0) & 0xf;
-#if 0
-    printf("set tile %d: format=%d size=%d addr=%x arg32=%08x mask_t=%d shift_t=%d mask_s=%d shift_s=%d\n",
+    printf("set tile %d: format=%d size=%d addr=%x line=%x arg32=%08x mask_t=%d shift_t=%d mask_s=%d shift_s=%d\n",
            tile_index,
            tile->format,
            tile->size,
+           tile->line,
            tile->addr,
            item->arg32,
            tile->mask_t,
            tile->shift_t,
            tile->mask_s,
            tile->shift_s);
-#endif
     return 0;
 }
 

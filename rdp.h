@@ -90,6 +90,7 @@ struct tile {
     uint8_t size;
     // The texture memory location.
     uint32_t addr;
+    uint32_t line;
     uint8_t mask_s;
     uint8_t mask_t;
     uint8_t shift_s;

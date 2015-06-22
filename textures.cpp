@@ -75,20 +75,55 @@ swizzled_texture load_texture_metadata(uint8_t tile_index) {
     return texture;
 }
 
+static void load_texture_pixels_ia4(swizzled_texture *texture) {
+    uint8_t *origin = (uint8_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
+    uint32_t *dest = texture->pixels;
+    printf("loading IA4\n");
+    for (int32_t y = 0; y < texture->height; y++) {
+        for (uint32_t x = 0; x < texture->width; x += 2) {
+            uint8_t byte = origin[y * (texture->width / 2) + x / 2];
+            dest[0] = ((uint32_t)((byte & 0xe0) >> 5) << 5) |
+                ((uint32_t)((byte & 0xe0) >> 5) << 13) |
+                ((uint32_t)((byte & 0xe0) >> 5) << 21) |
+                ((uint32_t)((byte & 0x10) >> 4) << 31);
+            dest[1] = ((uint32_t)((byte & 0x0e) >> 1) << 5) |
+                ((uint32_t)((byte & 0x0e) >> 1) << 13) |
+                ((uint32_t)((byte & 0x0e) >> 1) << 21) |
+                ((uint32_t)((byte & 0x01) >> 0) << 31);
+
+            dest = &dest[2];
+        }
+    }
+}
+
+static void load_texture_pixels_ia8(swizzled_texture *texture) {
+    uint8_t *origin = (uint8_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
+    uint32_t *dest = texture->pixels;
+    for (int32_t y = 0; y < texture->height; y++) {
+        for (uint32_t x = 0; x < texture->width; x++) {
+            uint8_t byte = origin[(y * texture->width + x) ^ 3];
+            *dest = ((uint32_t)((byte & 0xf0) >> 4) << 4) |
+                ((uint32_t)((byte & 0xf0) >> 4) << 12) |
+                ((uint32_t)((byte & 0xf0) >> 4) << 20) |
+                ((uint32_t)((byte & 0x0f) >> 0) << 28);
+
+            dest = &dest[1];
+        }
+    }
+}
+
 static void load_texture_pixels_rgba16(swizzled_texture *texture) {
     uint16_t *origin = (uint16_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
     uint32_t *dest = texture->pixels;
     for (int32_t y = 0; y < texture->height; y++) {
         for (uint32_t x = 0; x < texture->width; x += 2) {
             uint16_t pixel = origin[y * texture->width + x + 1];
-
 #if 0
             uint8_t r = (((pixel >> 1) & 0x1f) << 3);
             uint8_t g = (((pixel >> 6) & 0x1f) << 3);
             uint8_t b = (((pixel >> 11) & 0x1f) << 3);
             fprintf(stderr, "pixel=%d,%d,%d\n", (int)r, (int)g, (int)b);
 #endif
-
             dest[0] = (((pixel >> 1) & 0x1f) << 19) | (((pixel >> 6) & 0x1f) << 11) |
                 (((pixel >> 11) & 0x1f) << 3) | ((pixel & 1) ? 0xff000000 : 0);
 
@@ -142,13 +177,43 @@ void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
 #endif
 
     // TODO(tachiweasel): CI, I formats.
-    // TODO(tachiweasel): BPP other than 2.
-    switch (tile->format) {
-    case TEXTURE_FORMAT_IA:
-        load_texture_pixels_ia16(texture);
+    switch (tile->size) {
+    case BPP_4:
+        switch (tile->format) {
+        case TEXTURE_FORMAT_IA:
+            load_texture_pixels_ia4(texture);
+            break;
+        default:
+            printf("warning: unimplemented 4bpp format: %d\n", (int)tile->format);
+            load_texture_pixels_ia4(texture);
+        }
+        break;
+    case BPP_8:
+        switch (tile->format) {
+        case TEXTURE_FORMAT_IA:
+            load_texture_pixels_ia8(texture);
+            break;
+        default:
+            load_texture_pixels_ia8(texture);
+            printf("warning: unimplemented 8bpp format: %d\n", (int)tile->format);
+        }
         break;
     default:
-        load_texture_pixels_rgba16(texture);
+        printf("warning: unimplemented bpp: %d\n", (int)tile->size);
+        /* fall through */
+    case BPP_16:
+        switch (tile->format) {
+        case TEXTURE_FORMAT_IA:
+            load_texture_pixels_ia16(texture);
+            break;
+        case TEXTURE_FORMAT_RGBA:
+            load_texture_pixels_rgba16(texture);
+            break;
+        default:
+            printf("warning: unimplemented 16bpp format: %d\n", (int)tile->format);
+            load_texture_pixels_rgba16(texture);
+            break;
+        }
     }
 
 #if 0

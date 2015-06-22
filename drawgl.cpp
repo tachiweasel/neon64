@@ -12,7 +12,7 @@
 #define TEXTURE_HEIGHT      1024
 #define MAX_TRIANGLES       4096
 #define MAX_TEXTURE_INFO    1024
-#define MIN_TEXTURE_SIZE    16
+#define MIN_TEXTURE_SIZE    4
 
 #define COLUMN_RGB_MODE         0
 #define COLUMN_A_MODE           1
@@ -79,7 +79,7 @@ const GLchar *FRAGMENT_SHADER =
     "                             rawTextureCoord2[2] * 65536.0 + rawTextureCoord2[3] * 256.0);\n"
     "   vec2 textureCoord = vLambda[0] * textureCoord0 + vLambda[1] * textureCoord1 + \n"
     "       vLambda[2] * textureCoord2;\n"
-    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, dataT)) * 16.0 * 255.0;\n"
+    "   vec4 texturePixelBounds = texture2D(uData, vec2(12.0 / 16.0, dataT)) * 4.0 * 255.0;\n"
     "   vec4 textureMode = texture2D(uData, vec2(13.0 / 16.0, dataT));\n"
     "   /* Convert texture coords to [0.0, 1.0). */\n"
     "   if (texturePixelBounds.z == 0.0 || texturePixelBounds.w == 0.0)\n"
@@ -218,8 +218,8 @@ uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture) {
 
     // Find a spot for the texture.
     bool found = false;
-    for (uint16_t y = 0; y < TEXTURE_HEIGHT; y += 16) {
-        for (uint16_t x = 0; x < TEXTURE_WIDTH; x += 16) {
+    for (uint16_t y = 0; y <= TEXTURE_HEIGHT - texture->height; y += 16) {
+        for (uint16_t x = 0; x <= TEXTURE_WIDTH - texture->width; x += 16) {
             if (texture_space_occupied(gl_state, x, y, texture->width, texture->height))
                 continue;
             printf("found location at %d,%d\n", (int)x, (int)y);
@@ -240,15 +240,10 @@ uint32_t add_texture(gl_state *gl_state, swizzled_texture *texture) {
     }
 
     // Copy pixels in.
-    int r = rand() % 256; 
-    int g = rand() % 256; 
-    int b = rand() % 256;
-    uint32_t color = r | (g << 8) | (b << 16) | 0xff000000;
     for (uint16_t y = 0; y < texture_info.height; y++) {
         for (uint16_t x = 0; x < texture_info.width; x++) {
             gl_state->texture_buffer[(texture_info.y + y) * TEXTURE_WIDTH + (texture_info.x + x)]
                 = texture->pixels[y * texture_info.width + x];
-                //= color;
         }
     }
 
@@ -535,7 +530,6 @@ void init_scene(gl_state *gl_state) {
     free(gl_state->data_texture_buffer);
 
     if (gl_state->texture_buffer_is_dirty) {
-#if 0
         // Dump to TGA...
         FILE *f = fopen("/tmp/neon64texture.tga", "w");
         char header[ 18 ] = { 0 }; // char = byte
@@ -556,7 +550,6 @@ void init_scene(gl_state *gl_state) {
         }
         fclose(f);
         fprintf(stderr, "wrote /tmp/neon64texture.tga\n");
-#endif
 
         DO_GL(glBindTexture(GL_TEXTURE_2D, gl_state->texture));
         DO_GL(glTexImage2D(GL_TEXTURE_2D,
