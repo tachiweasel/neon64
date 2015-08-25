@@ -63,12 +63,20 @@ swizzled_texture load_texture_metadata(uint8_t tile_index) {
         plugin.rdp.texture_lower_right_t;
     texture.width = line << 3;
     texture.height = bytes / texture.width;
-    texture.width /= 2;
+
+    // FIXME(tachiweasel): This seems to work in Mario, but is it right?
+    if (tile->size > 0)
+        texture.width = texture.width >> (tile->size - 1);
+
+    if (tile->format == TEXTURE_FORMAT_IA && tile->size == BPP_4) {
+        printf("IA4 width=%d height=%d bytes=%d\n",
+               (int)texture.width,
+               (int)texture.height,
+               (int)bytes);
+    }
 
     uint16_t *origin = (uint16_t *)&plugin.memory.rdram[plugin.rdp.texture_address];
-    texture.hash = sbox_hash((uint8_t *)origin,
-                             texture.width * texture.height * sizeof(uint16_t),
-                             SBOX_HASH_SEED);
+    texture.hash = sbox_hash((uint8_t *)origin, bytes, SBOX_HASH_SEED);
 
     texture.clamp_s = tile->clamp_s;
     texture.clamp_t = tile->clamp_t;
@@ -155,26 +163,37 @@ static void load_texture_pixels_ia16(swizzled_texture *texture) {
     }
 }
 
+static void clear_texture_pixels(swizzled_texture *texture) {
+    uint32_t *dest = texture->pixels;
+    for (int32_t y = 0; y < texture->height; y++) {
+        for (uint32_t x = 0; x < texture->width; x++) {
+            dest[0] = 0xff0000ff;
+            dest = &dest[1];
+        }
+    }
+}
+
 void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
     texture->pixels = (uint32_t *)malloc(texture->width * texture->height * sizeof(uint32_t));
 
     tile *tile = &plugin.rdp.tiles[tile_index];
     printf("loading texture pixels for texture format %d, bpp %d\n", tile->format, tile->size);
 
-#if 0
 	char buf[256];
 	snprintf(buf, sizeof(buf), "/tmp/neon64tex%d.tga", (int)texture->hash);
-    FILE *f = fopen(buf, "w");
-	char header[18] = { 0 };
-	header[2] = 2;
-	header[12] = texture->width & 0xff;
-	header[13] = (texture->width >> 8) & 0xff;
-	header[14] = texture->height & 0xff;
-	header[15] = (texture->height >> 8) & 0xff;
-	header[16] = 24;
-	fwrite(header, 1, sizeof(header), f);
-    fprintf(stderr, "--- starting %dx%d---\n", (int)texture->width, (int)texture->height);
-#endif
+    FILE *f;
+    if (tile->size == BPP_16 && tile->format == TEXTURE_FORMAT_IA) {
+        f = fopen(buf, "w");
+        char header[18] = { 0 };
+        header[2] = 2;
+        header[12] = texture->width & 0xff;
+        header[13] = (texture->width >> 8) & 0xff;
+        header[14] = texture->height & 0xff;
+        header[15] = (texture->height >> 8) & 0xff;
+        header[16] = 24;
+        fwrite(header, 1, sizeof(header), f);
+        fprintf(stderr, "--- starting %dx%d---\n", (int)texture->width, (int)texture->height);
+    }
 
     // TODO(tachiweasel): CI, I formats.
     switch (tile->size) {
@@ -191,6 +210,7 @@ void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
     case BPP_8:
         switch (tile->format) {
         case TEXTURE_FORMAT_IA:
+            printf("*** loading ia8!\n");
             load_texture_pixels_ia8(texture);
             break;
         default:
@@ -205,6 +225,7 @@ void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
         switch (tile->format) {
         case TEXTURE_FORMAT_IA:
             load_texture_pixels_ia16(texture);
+            //clear_texture_pixels(texture);
             break;
         case TEXTURE_FORMAT_RGBA:
             load_texture_pixels_rgba16(texture);
@@ -216,22 +237,22 @@ void load_texture_pixels(swizzled_texture *texture, uint8_t tile_index) {
         }
     }
 
-#if 0
-    for (int32_t y = texture->height - 1; y >= 0; y--) {
-        for (int32_t x = 0; x < texture->width; x++) {
-            uint32_t color = texture->pixels[y * texture->width + x];
-            fputc((int)((color >> 16) & 0xff), f);
-            fputc((int)((color >> 8) & 0xff), f);
-            fputc((int)((color >> 0) & 0xff), f);
+    if (tile->size == BPP_16 && tile->format == TEXTURE_FORMAT_IA) {
+        for (int32_t y = texture->height - 1; y >= 0; y--) {
+            for (int32_t x = 0; x < texture->width; x++) {
+                uint32_t color = texture->pixels[y * texture->width + x];
+                fputc((int)((color >> 16) & 0xff), f);
+                fputc((int)((color >> 8) & 0xff), f);
+                fputc((int)((color >> 0) & 0xff), f);
+            }
         }
+        fclose(f);
+        printf("wrote %s, tileindex=%d width=%d height=%d\n",
+               buf,
+               (int)tile_index,
+               texture->width,
+               texture->height);
     }
-    fclose(f);
-    printf("wrote %s, tileindex=%d width=%d height=%d\n",
-           buf,
-           (int)tile_index,
-           texture->width,
-           texture->height);
-#endif
 }
 
 void destroy_texture(swizzled_texture *texture) {

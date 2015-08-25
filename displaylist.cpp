@@ -847,6 +847,15 @@ int32_t op_draw_triangle(display_item *item) {
            t.v1.x, t.v1.y, t.v1.z, t.t1.x, t.t1.y,
            t.v2.x, t.v2.y, t.v2.z, t.t2.x, t.t2.y);
 #endif
+
+#if 0
+    if (plugin.rdp.texture_enabled && plugin.rdp.texture_tile != plugin.rdp.loaded_texture_tile) {
+        printf("*** texture tile=%d loaded texture tile=%d!\n",
+               (int)plugin.rdp.texture_tile,
+               (int)plugin.rdp.loaded_texture_tile);
+    }
+#endif
+
     add_triangle(&plugin.gl_state, &triangle);
     return 0;
 }
@@ -958,7 +967,7 @@ int32_t op_pop_matrix(display_item *item) {
 int32_t op_texture(display_item *item) {
     plugin.rdp.texture_enabled = item->arg16 & 1;
     plugin.rdp.texture_tile = (item->arg16 >> 8) & 0x7;
-    // uint8_t level = (item->arg16 >> 11) & 0x7;
+    uint8_t level = (item->arg16 >> 11) & 0x7;
 #if 0
     printf("texture: tile=%d level=%d enabled=%d\n",
            (int)plugin.rdp.texture_tile,
@@ -1032,20 +1041,19 @@ int32_t op_load_block(display_item *item) {
         (uint16_t)(item->arg16 >> 12) | (uint16_t)(item->arg8 << 4);
     plugin.rdp.texture_lower_right_t = (item->arg32 >> 0) & 0xfff;
     plugin.rdp.texture_lower_right_s = (item->arg32 >> 12) & 0xfff;
-#if 0
     printf("load block %d: uls=%d ult=%d lrs=%d lrt=%d\n",
            (int)tile_index,
            plugin.rdp.texture_upper_left_s,
            plugin.rdp.texture_upper_left_t,
            plugin.rdp.texture_lower_right_s,
            plugin.rdp.texture_lower_right_t);
-#endif
 
     swizzled_texture swizzled_texture = load_texture_metadata(tile_index);
     plugin.rdp.texture_id = id_of_texture_with_hash(&plugin.gl_state, swizzled_texture.hash);
     if (plugin.rdp.texture_id == 0) {
         load_texture_pixels(&swizzled_texture, tile_index);
         plugin.rdp.texture_id = add_texture(&plugin.gl_state, &swizzled_texture);
+        plugin.rdp.loaded_texture_tile = tile_index;
         destroy_texture(&swizzled_texture);
     }
     return 0;
@@ -1069,6 +1077,14 @@ int32_t op_set_tile(display_item *item) {
     tile->clamp_s = (item->arg32 >> 9) & 0x1;
     tile->mask_s = (item->arg32 >> 4) & 0xf;
     tile->shift_s = (item->arg32 >> 0) & 0xf;
+
+    if (tile->size == BPP_4 && tile->format == TEXTURE_FORMAT_IA) {
+        printf("*** settile IA4: tile ID=%d!\n", tile_index);
+    } else {
+        printf("settile non-IA4: tile ID=%d\n", tile_index);
+    }
+
+#if 0
     printf("set tile %d: format=%d size=%d addr=%x line=%x arg32=%08x mask_t=%d shift_t=%d mask_s=%d shift_s=%d\n",
            tile_index,
            tile->format,
@@ -1080,6 +1096,7 @@ int32_t op_set_tile(display_item *item) {
            tile->shift_t,
            tile->mask_s,
            tile->shift_s);
+#endif
     return 0;
 }
 

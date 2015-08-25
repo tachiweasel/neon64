@@ -157,6 +157,7 @@ struct rdp {
     float z_base;
 
     uint32_t matrix_changes;
+    uint8_t loaded_texture_tile;
 };
 
 void send_dp_interrupt();
